@@ -1,0 +1,9 @@
+/target/
+/artifacts/
+*.log
+.progress-active
+.DS_Store
+.env
+.env.*
+*.pem
+*.key

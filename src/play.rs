@@ -1,0 +1,797 @@
+use glam::Vec3;
+use winit::keyboard::KeyCode;
+#[derive(Default)]
+pub struct Controls {
+    pub keys: std::collections::HashSet<KeyCode>,
+    pub captured: bool,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub enum Action {
+    None,
+    ReleaseCursor,
+    Reset,
+    ToggleNoclip,
+    Use,
+    Throw,
+}
+impl Controls {
+    pub fn press(&mut self, key: KeyCode) -> Action {
+        self.keys.insert(key);
+        match key {
+            KeyCode::Escape => {
+                self.keys.clear();
+                self.captured = false;
+                Action::ReleaseCursor
+            }
+            KeyCode::KeyR => Action::Reset,
+            KeyCode::KeyN => Action::ToggleNoclip,
+            KeyCode::KeyE => Action::Use,
+            KeyCode::KeyF => Action::Throw,
+            _ => Action::None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Plane {
+    pub normal: Vec3,
+    pub distance: f32,
+}
+pub struct World {
+    pub portals: [Option<crate::portal::Portal>; 2],
+    pub brushes: Vec<Vec<Plane>>,
+    pub(crate) rigid: Vec<Vec<Plane>>,
+    pub(crate) rigid_ids: Vec<usize>,
+    pub spawn: Vec3,
+    pub yaw: f32,
+    pub model_brushes: Vec<Vec<Vec<Plane>>>,
+    pub model_origins: Vec<Vec3>,
+    pub model_solid: Vec<bool>,
+    floor_support: Vec<Vec<Vec<Plane>>>,
+}
+impl World {
+    /// Rigid upward triangle support from actual posed MDL geometry. This is not PHY collision.
+    pub fn bind_scene(&mut self, scene: &crate::scene::Scene) {
+        if self.model_origins.len() < scene.origins.len() {
+            self.model_origins
+                .extend_from_slice(&scene.origins[self.model_origins.len()..]);
+        }
+        self.floor_support
+            .resize_with(scene.origins.len(), Vec::new);
+        for instance in &scene.animations {
+            if !instance.solid || instance.skeleton.clips.len() != 1 {
+                continue;
+            }
+            for tri in scene.vertices[instance.range.clone()].chunks_exact(3) {
+                let points = [
+                    Vec3::from(tri[0].position),
+                    Vec3::from(tri[1].position),
+                    Vec3::from(tri[2].position),
+                ];
+                let normal = Vec3::from(tri[0].normal)
+                    + Vec3::from(tri[1].normal)
+                    + Vec3::from(tri[2].normal);
+                if normal.normalize_or_zero().z < 0.99
+                    || (points[0].z - points[1].z).abs() > 0.01
+                    || (points[0].z - points[2].z).abs() > 0.01
+                {
+                    continue;
+                }
+                let center = (points[0] + points[1] + points[2]) / 3.;
+                let mut brush = vec![
+                    Plane {
+                        normal: Vec3::Z,
+                        distance: points[0].z,
+                    },
+                    Plane {
+                        normal: -Vec3::Z,
+                        distance: -points[0].z + 0.25,
+                    },
+                ];
+                for i in 0..3 {
+                    let edge = points[(i + 1) % 3] - points[i];
+                    let mut n = Vec3::new(edge.y, -edge.x, 0.).normalize_or_zero();
+                    if n.length_squared() < 0.5 {
+                        continue;
+                    }
+                    if n.dot(center - points[i]) > 0. {
+                        n = -n;
+                    }
+                    brush.push(Plane {
+                        normal: n,
+                        distance: n.dot(points[i]),
+                    });
+                }
+                if brush.len() == 5 {
+                    self.floor_support[tri[0].model as usize].push(brush);
+                }
+            }
+        }
+    }
+    pub fn from_brushes(brushes: Vec<Vec<Plane>>) -> Self {
+        Self {
+            portals: [None; 2],
+            rigid: vec![],
+            rigid_ids: vec![],
+            floor_support: vec![vec![]],
+            model_brushes: vec![brushes.clone()],
+            model_origins: vec![Vec3::ZERO],
+            model_solid: vec![true],
+            brushes,
+            spawn: Vec3::ZERO,
+            yaw: 0.,
+        }
+    }
+    pub fn overlaps(&self, position: Vec3, height: f32) -> bool {
+        let center = position + Vec3::Z * height * 0.5;
+        let extent = Vec3::new(16., 16., height * 0.5);
+        self.brushes
+            .iter()
+            .chain(self.rigid.iter())
+            .enumerate()
+            .any(|(index, b)| {
+                !(index < self.model_brushes[0].len() && self.aperture(b, center, center, extent))
+                    && b.iter().all(|p| {
+                        p.normal.dot(center) - p.distance - p.normal.abs().dot(extent) < -0.001
+                    })
+            })
+    }
+    pub fn parse(b: &[u8]) -> Result<Self, String> {
+        crate::validate(b)?;
+        for id in [1, 18, 19] {
+            let h = 8 + id * 16 + 8;
+            if b[h..h + 4] != [0; 4] {
+                return Err(format!("unsupported collision layout for lump {id}"));
+            }
+        }
+        let i = |a: &[u8], o| i32::from_le_bytes(a[o..o + 4].try_into().unwrap());
+        let f = |a: &[u8], o| f32::from_le_bytes(a[o..o + 4].try_into().unwrap());
+        let planes: Vec<_> = crate::lump(b, 1, 20)?
+            .chunks_exact(20)
+            .map(|a| Plane {
+                normal: Vec3::new(f(a, 0), f(a, 4), f(a, 8)),
+                distance: f(a, 12),
+            })
+            .collect();
+        if planes.iter().any(|p| {
+            !p.normal.is_finite()
+                || !p.distance.is_finite()
+                || (p.normal.length() - 1.).abs() > 0.01
+        }) {
+            return Err("invalid collision plane".into());
+        }
+        let sides = crate::lump(b, 19, 8)?;
+        let mut brushes = vec![];
+        for a in crate::lump(b, 18, 12)?.chunks_exact(12) {
+            let start = i(a, 0);
+            let count = i(a, 4);
+            if start < 0 || count < 0 || start as usize + count as usize > sides.len() / 8 {
+                return Err("brush side range".into());
+            }
+            let mut brush = vec![];
+            for s in sides[start as usize * 8..(start + count) as usize * 8].chunks_exact(8) {
+                let n = u16::from_le_bytes(s[..2].try_into().unwrap()) as usize;
+                brush.push(*planes.get(n).ok_or("brush plane range")?);
+            }
+            if i(a, 8) & (1 | 2 | 65536) == 0 {
+                brush.clear();
+            }
+            brushes.push(brush);
+        }
+        let indices = crate::models::model_brush_indices(b)?;
+        let mut model_brushes = indices
+            .iter()
+            .map(|indices| {
+                indices
+                    .iter()
+                    .filter_map(|&n| {
+                        if brushes[n].is_empty() {
+                            None
+                        } else {
+                            Some(brushes[n].clone())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let entities = crate::entity::parse_entities(crate::lump(b, 0, 1)?)?;
+        let player = entities
+            .iter()
+            .find(|e| e.get("classname") == Some("info_player_start"))
+            .or_else(|| {
+                entities.iter().find(|e| {
+                    e.get("classname")
+                        .is_some_and(|c| c.starts_with("info_player_"))
+                })
+            })
+            .ok_or("no supported player spawn")?;
+        let spawn = player.origin()?;
+        let yaw = crate::entity::vector(player.get("angles").unwrap_or("0 0 0"))?
+            .y
+            .to_radians();
+        let mut origins = vec![Vec3::ZERO; model_brushes.len()];
+        let mut solid = vec![true; model_brushes.len()];
+        for e in &entities {
+            if let Some(model) = e.model()? {
+                *origins
+                    .get_mut(model)
+                    .ok_or("entity collision model range")? = e.origin()?;
+                let class = e.get("classname").unwrap_or("");
+                // SF_TRACKTRAIN_PASSABLE: the map's train brush is an invisible
+                // transform carrier, not the visible elevator body's collision.
+                let passable = ["func_tracktrain", "func_door", "func_door_rotating"]
+                    .contains(&class)
+                    && e.get("spawnflags")
+                        .unwrap_or("0")
+                        .parse::<u32>()
+                        .map_err(|e| e.to_string())?
+                        & 8
+                        != 0;
+                if passable {
+                    model_brushes[model].clear();
+                }
+                solid[model] = !(passable
+                    || class.starts_with("trigger_")
+                    || [
+                        "func_areaportal",
+                        "func_noportal_volume",
+                        "func_portal_detector",
+                        "func_illusionary",
+                    ]
+                    .contains(&class)
+                    || class == "func_brush" && e.get("Solidity") == Some("1"));
+                let rotation = crate::models::rotation(crate::entity::vector(
+                    e.get("angles").unwrap_or("0 0 0"),
+                )?);
+                for brush in &mut model_brushes[model] {
+                    for plane in brush {
+                        plane.normal = rotation * plane.normal;
+                    }
+                }
+            }
+        }
+        let mut world = Self {
+            portals: [None; 2],
+            rigid: vec![],
+            rigid_ids: vec![],
+            brushes: vec![],
+            spawn,
+            yaw,
+            floor_support: vec![vec![]; model_brushes.len()],
+            model_brushes,
+            model_origins: origins.clone(),
+            model_solid: solid.clone(),
+        };
+        world.update_models(&origins, &solid);
+        Ok(world)
+    }
+    pub fn update_models(&mut self, origins: &[Vec3], enabled: &[bool]) {
+        self.update_transforms(origins, enabled, &[]);
+    }
+    pub fn update_transforms(
+        &mut self,
+        origins: &[Vec3],
+        enabled: &[bool],
+        rotations: &[glam::Mat3],
+    ) {
+        self.model_origins = origins.to_vec();
+        self.brushes.clear();
+        for (model, brushes) in self.model_brushes.iter().enumerate() {
+            if !self.model_solid[model] || !enabled.get(model).copied().unwrap_or(false) {
+                continue;
+            }
+            let origin = origins.get(model).copied().unwrap_or(Vec3::ZERO);
+            let rotation = rotations
+                .get(model)
+                .copied()
+                .unwrap_or(glam::Mat3::IDENTITY);
+            for brush in brushes {
+                self.brushes.push(
+                    brush
+                        .iter()
+                        .map(|p| Plane {
+                            normal: rotation * p.normal,
+                            distance: p.distance + (rotation * p.normal).dot(origin),
+                        })
+                        .collect(),
+                );
+            }
+        }
+    }
+    pub fn trace(&self, start: Vec3, end: Vec3) -> (f32, Vec3) {
+        self.trace_height(start, end, 72.)
+    }
+    pub fn trace_height(&self, start: Vec3, end: Vec3, height: f32) -> (f32, Vec3) {
+        self.trace_hull(
+            start,
+            end,
+            Vec3::new(0., 0., height * 0.5),
+            Vec3::new(16., 16., height * 0.5),
+            true,
+            None,
+        )
+    }
+    pub fn trace_point(&self, start: Vec3, end: Vec3) -> (f32, Vec3) {
+        self.trace_hull(start, end, Vec3::ZERO, Vec3::ZERO, true, None)
+    }
+    pub(crate) fn trace_use(&self, start: Vec3, end: Vec3, target: usize) -> (f32, Vec3) {
+        self.trace_hull(start, end, Vec3::ZERO, Vec3::ZERO, true, Some(target))
+    }
+    pub fn overlaps_cuboid(&self, center: Vec3, extent: Vec3) -> bool {
+        self.brushes
+            .iter()
+            .chain(self.rigid.iter())
+            .enumerate()
+            .any(|(index, b)| {
+                !(index < self.model_brushes[0].len() && self.aperture(b, center, center, extent))
+                    && b.iter().all(|p| {
+                        p.normal.dot(center) - p.distance - p.normal.abs().dot(extent) < -0.001
+                    })
+            })
+    }
+    pub(crate) fn trace_body(
+        &self,
+        id: usize,
+        start: Vec3,
+        end: Vec3,
+        extent: Vec3,
+    ) -> (f32, Vec3) {
+        self.trace_hull(start, end, Vec3::ZERO, extent, false, Some(id))
+    }
+    pub(crate) fn body_overlap(&self, id: usize, center: Vec3, extent: Vec3) -> bool {
+        self.brushes
+            .iter()
+            .chain(self.rigid.iter())
+            .enumerate()
+            .any(|(index, b)| {
+                if index >= self.brushes.len()
+                    && self.rigid_ids.get(index - self.brushes.len()) == Some(&id)
+                {
+                    return false;
+                }
+                !(index < self.model_brushes[0].len()
+                    && self.aperture_except(b, center, center, extent, Some(id)))
+                    && b.iter().all(|p| {
+                        p.normal.dot(center) - p.distance - p.normal.abs().dot(extent) < -0.001
+                    })
+            })
+    }
+    pub fn trace_cuboid(&self, start: Vec3, end: Vec3, extent: Vec3) -> (f32, Vec3) {
+        self.trace_hull(start, end, Vec3::ZERO, extent, false, None)
+    }
+    fn trace_hull(
+        &self,
+        start: Vec3,
+        end: Vec3,
+        center: Vec3,
+        extent: Vec3,
+        rigid: bool,
+        ignore: Option<usize>,
+    ) -> (f32, Vec3) {
+        let mut hit = (1., Vec3::ZERO);
+        for (index, brush) in self.brushes.iter().enumerate() {
+            if index < self.model_brushes[0].len()
+                && self.aperture_except(brush, start + center, end + center, extent, ignore)
+            {
+                continue;
+            }
+            let h = Self::trace_brushes(std::slice::from_ref(brush), start, end, center, extent);
+            if h.0 < hit.0 {
+                hit = h;
+            }
+        }
+        if rigid {
+            for (index, brush) in self.rigid.iter().enumerate() {
+                if ignore.is_some() && self.rigid_ids.get(index).copied() == ignore {
+                    continue;
+                }
+                let h =
+                    Self::trace_brushes(std::slice::from_ref(brush), start, end, center, extent);
+                if h.0 < hit.0 {
+                    hit = h;
+                }
+            }
+        }
+        if end.z < start.z {
+            for model in 0..self.floor_support.len() {
+                let origin = self.model_origins[model];
+                for brush in &self.floor_support[model] {
+                    let top = brush[0].distance + origin.z;
+                    let feet = start.z + center.z - extent.z;
+                    if feet < top - 0.001 {
+                        continue;
+                    }
+                    let f = ((feet - top - 0.03125) / (start.z - end.z)).max(0.);
+                    if f >= hit.0 {
+                        continue;
+                    }
+                    let point = start.lerp(end, f) + center - origin;
+                    if brush[2..]
+                        .iter()
+                        .all(|p| p.normal.dot(point) - p.distance <= p.normal.abs().dot(extent))
+                    {
+                        hit = (f, Vec3::Z);
+                    }
+                }
+            }
+        }
+        hit
+    }
+    fn portal_brush(brush: &[Plane], p: crate::portal::Portal, extent: Vec3) -> bool {
+        brush.iter().any(|s| {
+            s.normal.dot(p.normal) > 0.9999
+                && (s.distance - s.normal.dot(p.center)).abs() < p.normal.abs().dot(extent) + 8.1
+        }) && (brush.iter().all(|s| {
+            s.normal.dot(p.normal).abs() > 0.9999
+                || s.normal.dot(p.center) - s.distance < s.normal.abs().dot(extent) + 0.1
+        }) || {
+            let front = brush.iter().find(|s| s.normal.dot(p.normal) > 0.9999);
+            let back = brush.iter().find(|s| s.normal.dot(p.normal) < -0.9999);
+            matches!((front,back),(Some(a),Some(b)) if a.distance+b.distance<=16.1)
+        })
+    }
+    fn aperture(&self, brush: &[Plane], start: Vec3, end: Vec3, extent: Vec3) -> bool {
+        self.aperture_except(brush, start, end, extent, None)
+    }
+    fn aperture_except(
+        &self,
+        brush: &[Plane],
+        start: Vec3,
+        end: Vec3,
+        extent: Vec3,
+        ignore: Option<usize>,
+    ) -> bool {
+        let [Some(a), Some(b)] = self.portals else {
+            return false;
+        };
+        if extent.length_squared() < 1. {
+            return false;
+        }
+        [(a, b), (b, a)].into_iter().any(|(p, dst)| {
+            let a = p.normal.dot(start - p.center);
+            let b = p.normal.dot(end - p.center);
+            let reach = p.normal.abs().dot(extent) + 2.;
+            let t = if (a - b).abs() > 0.0001 {
+                (a / (a - b)).clamp(0., 1.)
+            } else {
+                0.
+            };
+            let center = start.lerp(end, t);
+            if a.min(b) > reach
+                || a.max(b) < -reach
+                || !p.fits(center, extent)
+                || !Self::portal_brush(brush, p, extent)
+            {
+                return false;
+            }
+            let at = center - p.normal * p.normal.dot(center - p.center);
+            let mapped = p.map_point(dst, at) + dst.normal * 0.05;
+            dst.fits(mapped, extent)
+                && !self
+                    .brushes
+                    .iter()
+                    .chain(self.rigid.iter())
+                    .enumerate()
+                    .any(|(index, other)| {
+                        if index >= self.brushes.len()
+                            && ignore.is_some()
+                            && self.rigid_ids.get(index - self.brushes.len()).copied() == ignore
+                        {
+                            return false;
+                        }
+                        let support = index < self.model_brushes[0].len()
+                            && Self::portal_brush(other, dst, extent);
+                        !support
+                            && other.iter().all(|s| {
+                                s.normal.dot(mapped) - s.distance - s.normal.abs().dot(extent)
+                                    < -0.001
+                            })
+                    })
+        })
+    }
+    pub fn support_model(&self, position: Vec3, height: f32) -> Option<usize> {
+        let mut best = 1.;
+        let mut support = None;
+        for model in 1..self.model_brushes.len() {
+            if !self.model_solid[model] {
+                continue;
+            }
+            let origin = self.model_origins[model];
+            let (f, n) = Self::trace_brushes(
+                &self.model_brushes[model],
+                position - origin + Vec3::Z * 0.1,
+                position - origin - Vec3::Z * 2.,
+                Vec3::Z * height * 0.5,
+                Vec3::new(16., 16., height * 0.5),
+            );
+            if n.z > 0.7 && f < best {
+                best = f;
+                support = Some(model);
+            }
+        }
+        for model in 1..self.floor_support.len() {
+            let origin = self.model_origins[model];
+            for brush in &self.floor_support[model] {
+                let top = brush[0].distance + origin.z;
+                if (position.z - top).abs() > 0.2 {
+                    continue;
+                }
+                let point = position - origin;
+                if brush[2..].iter().all(|p| {
+                    p.normal.dot(point) - p.distance <= p.normal.abs().dot(Vec3::new(16., 16., 0.))
+                }) {
+                    return Some(model);
+                }
+            }
+        }
+        support
+    }
+    pub(crate) fn trace_brushes(
+        brushes: &[Vec<Plane>],
+        start: Vec3,
+        end: Vec3,
+        center: Vec3,
+        extent: Vec3,
+    ) -> (f32, Vec3) {
+        let mut fraction = 1.;
+        let mut normal = Vec3::ZERO;
+        for brush in brushes {
+            let mut enter = -1f32;
+            let mut exit = 1f32;
+            let mut hit = Vec3::ZERO;
+            let mut outside = false;
+            let mut reject = false;
+            for plane in brush {
+                let distance = plane.distance + plane.normal.abs().dot(extent);
+                let a = plane.normal.dot(start + center) - distance;
+                let z = plane.normal.dot(end + center) - distance;
+                if a > 0. {
+                    outside = true;
+                }
+                if a > 0. && z >= a {
+                    reject = true;
+                    break;
+                }
+                if a <= 0. && z <= 0. {
+                    continue;
+                }
+                if a > z {
+                    let t = (a - 0.03125) / (a - z);
+                    if t > enter {
+                        enter = t;
+                        hit = plane.normal;
+                    }
+                } else {
+                    exit = exit.min((a + 0.03125) / (a - z));
+                }
+            }
+            if !reject && outside && enter < exit && enter >= 0. && enter < fraction {
+                fraction = enter;
+                normal = hit;
+            }
+        }
+        (fraction, normal)
+    }
+}
+pub fn smoke_tick(frame: u64, p: &mut Player, w: &World) {
+    if frame == 120 {
+        p.yaw = 0.;
+        p.pitch = -0.1;
+    }
+    let input = if (120..360).contains(&frame) {
+        Vec3::X
+    } else {
+        Vec3::ZERO
+    };
+    p.step(w, input, frame == 360, 1. / 120.);
+}
+pub struct Player {
+    pub view_up: Vec3,
+    pub portal_crossings: u64,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub grounded: bool,
+    pub noclip: bool,
+    pub crouched: bool,
+}
+impl Player {
+    pub fn spawn(world: &World) -> Self {
+        Self::new(world.spawn, world.yaw)
+    }
+    pub fn new(position: Vec3, yaw: f32) -> Self {
+        Self {
+            position,
+            velocity: Vec3::ZERO,
+            view_up: Vec3::Z,
+            portal_crossings: 0,
+            yaw,
+            pitch: 0.,
+            grounded: false,
+            noclip: false,
+            crouched: false,
+        }
+    }
+    pub fn height(&self) -> f32 {
+        if self.crouched {
+            36.
+        } else {
+            72.
+        }
+    }
+    pub fn eye_height(&self) -> f32 {
+        if self.crouched {
+            28.
+        } else {
+            64.
+        }
+    }
+    pub fn set_crouch(&mut self, w: &World, crouch: bool) {
+        if crouch || !w.overlaps(self.position, 72.) {
+            self.crouched = crouch;
+        }
+    }
+    pub fn forward(&self) -> Vec3 {
+        Vec3::new(
+            self.yaw.cos() * self.pitch.cos(),
+            self.yaw.sin() * self.pitch.cos(),
+            self.pitch.sin(),
+        )
+    }
+    pub fn step(&mut self, w: &World, input: Vec3, jump: bool, dt: f32) {
+        // Roll recovery is a local camera policy, not recovered Source tuning.
+        let f = self.forward();
+        let target = (Vec3::Z - f * f.z).normalize_or_zero();
+        let current = (self.view_up - f * self.view_up.dot(f)).normalize_or_zero();
+        if current.length_squared() < 0.5 {
+            self.view_up = if target.length_squared() > 0.5 {
+                target
+            } else {
+                Vec3::Y
+            };
+        }
+        if target.length_squared() > 0.5 && current.length_squared() > 0.5 {
+            let angle = f.dot(current.cross(target)).atan2(current.dot(target));
+            self.view_up = glam::Quat::from_axis_angle(f, angle.clamp(-3. * dt, 3. * dt)) * current;
+        }
+        let forward = Vec3::new(self.yaw.cos(), self.yaw.sin(), 0.);
+        let right = Vec3::new(self.yaw.sin(), -self.yaw.cos(), 0.);
+        let wish = (forward * input.x + right * input.y).normalize_or_zero()
+            * if self.crouched { 90. } else { 190. };
+        if self.noclip {
+            self.position += (wish + Vec3::Z * input.z * 190.) * dt;
+            self.velocity = Vec3::ZERO;
+            return;
+        }
+        let (ground, n) =
+            w.trace_height(self.position, self.position - Vec3::Z * 2., self.height());
+        self.grounded = ground < 1. && n.z > 0.7;
+        if self.grounded {
+            self.velocity.x = wish.x;
+            self.velocity.y = wish.y;
+        } else if wish.length_squared() > 0. {
+            let direction = wish.normalize();
+            let add = (wish.length() - self.velocity.dot(direction)).clamp(0., 1000. * dt);
+            self.velocity += direction * add;
+        }
+        if self.grounded && self.velocity.z < 0. {
+            self.velocity.z = 0.;
+        }
+        if jump && self.grounded {
+            self.velocity.z = 270.;
+            self.grounded = false;
+        }
+        self.velocity.z -= 600. * dt;
+        let start = self.position;
+        let initial_velocity = self.velocity;
+        let was_grounded = self.grounded;
+        let mut remaining = dt;
+        for _ in 0..4 {
+            let offset = Vec3::Z * self.height() * 0.5;
+            let extent = Vec3::new(16., 16., self.height() * 0.5);
+            if let [Some(a), Some(b)] = w.portals {
+                let mut crossed = false;
+                for (src, dst) in [(a, b), (b, a)] {
+                    let center = self.position + offset;
+                    let end = center + self.velocity * remaining;
+                    let d0 = src.normal.dot(center - src.center);
+                    let d1 = src.normal.dot(end - src.center);
+                    if d0 > 0. && d1 <= 0. {
+                        let t = d0 / (d0 - d1);
+                        if w.trace_height(
+                            self.position,
+                            self.position + self.velocity * remaining,
+                            self.height(),
+                        )
+                        .0 + 0.00001
+                            < t
+                        {
+                            continue;
+                        }
+                        let at = center.lerp(end, t);
+                        let mapped = src.map_point(dst, at) + dst.normal * 0.05;
+                        if src.fits(at, extent)
+                            && dst.fits(mapped, extent)
+                            && !w.overlaps(mapped - offset, self.height())
+                        {
+                            self.position = mapped - offset;
+                            self.velocity = src.map_vector(dst, self.velocity);
+                            let forward = src.map_vector(dst, self.forward());
+                            self.yaw = forward.y.atan2(forward.x);
+                            self.pitch = forward.z.clamp(-1., 1.).asin();
+                            self.view_up = src.map_vector(dst, self.view_up);
+                            self.grounded = false;
+                            self.portal_crossings += 1;
+                            remaining *= 1. - t;
+                            crossed = true;
+                            break;
+                        } else if d0 < src.normal.abs().dot(extent) + 2.
+                            && (at - src.center).dot(src.right()).abs()
+                                < crate::portal::HALF_WIDTH + extent.length()
+                            && (at - src.center).dot(src.up).abs()
+                                < crate::portal::HALF_HEIGHT + extent.length()
+                        {
+                            // A partially inserted hull can cease fitting while it jumps.
+                            // The convex sweep starts inside the backing brush and cannot
+                            // supply an entry hit: retain a front-plane barrier instead of
+                            // allowing motion through the wall without a valid transfer.
+                            self.position = at + src.normal * 0.03125 - offset;
+                            let into = self.velocity.dot(src.normal);
+                            if into < 0. {
+                                self.velocity -= src.normal * into;
+                            }
+                            remaining *= 1. - t;
+                            crossed = true;
+                            break;
+                        }
+                    }
+                }
+                if crossed {
+                    continue;
+                }
+            }
+            let (t, n) = w.trace_height(
+                self.position,
+                self.position + self.velocity * remaining,
+                self.height(),
+            );
+            self.position += self.velocity * remaining * t;
+            if t >= 1. {
+                break;
+            }
+            remaining *= 1. - t;
+            let into = self.velocity.dot(n);
+            if into < 0. {
+                self.velocity -= n * into;
+            }
+            if n.z > 0.7 {
+                self.grounded = true;
+            }
+        }
+        if was_grounded
+            && !jump
+            && (initial_velocity * dt).truncate().length_squared()
+                > (self.position - start).truncate().length_squared() + 0.001
+        {
+            let (up, _) = w.trace_height(start, start + Vec3::Z * 18., self.height());
+            if up >= 1. {
+                let raised = start + Vec3::Z * 18.;
+                let horizontal = Vec3::new(initial_velocity.x, initial_velocity.y, 0.) * dt;
+                let (along, _) = w.trace_height(raised, raised + horizontal, self.height());
+                let top = raised + horizontal * along;
+                let (down, n) = w.trace_height(top, top - Vec3::Z * 20., self.height());
+                let stepped = top - Vec3::Z * 20. * down;
+                if down < 1.
+                    && n.z > 0.7
+                    && (stepped - start).truncate().length_squared()
+                        > (self.position - start).truncate().length_squared()
+                    && !w.overlaps(stepped, self.height())
+                {
+                    self.position = stepped;
+                    self.velocity = Vec3::new(initial_velocity.x, initial_velocity.y, 0.);
+                    self.grounded = true;
+                }
+            }
+        }
+    }
+}

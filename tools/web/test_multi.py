@@ -1,0 +1,9 @@
+from playwright.sync_api import sync_playwright
+from pathlib import Path
+import json
+root=Path(__file__).parent; artifact=root/'chambers00-01.html'
+assert artifact.stat().st_size<9_000_000
+s=artifact.read_text();assert 'https://' not in s and 'fetch(' not in s and 'DecompressionStream' in s
+with sync_playwright() as p:
+ b=p.chromium.launch(executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless=True,args=['--allow-file-access-from-files']);page=b.new_page(viewport={'width':1280,'height':800});errs=[];req=[];page.on('pageerror',lambda e:errs.append(str(e)));page.on('request',lambda r:req.append(r.url));page.goto(artifact.as_uri());page.wait_for_function('window.ready===true',timeout=60000);page.wait_for_timeout(1000)
+ initial=page.evaluate('({chamber:demo.chamber,pos:demo.position,frames:demo.frames})');page.keyboard.down('KeyW');page.wait_for_timeout(500);page.keyboard.up('KeyW');walk=page.evaluate('demo.position');page.keyboard.press('KeyE');page.keyboard.press('KeyP');state00=page.evaluate('({cube:demo.cube,portals:demo.portals})');page.keyboard.press('KeyT');page.wait_for_function('demo.chamber===1');page.wait_for_timeout(500);ch1=page.evaluate('({chamber:demo.chamber,pos:demo.position,frames:demo.frames})');page.keyboard.down('KeyW');page.wait_for_timeout(500);page.keyboard.up('KeyW');walk1=page.evaluate('demo.position');page.screenshot(path=str(root/'chambers00-01-browser.png'));result={'artifact_bytes':artifact.stat().st_size,'initial':initial,'walk_changed':walk!=initial['pos'],'state00':state00,'chamber01':ch1,'walk01_changed':walk1!=ch1['pos'],'page_errors':errs,'requests':req,'frames':page.evaluate('demo.frames')};(root/'browser-verification-00-01.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2));assert not errs and state00=={'cube':True,'portals':1} and ch1['chamber']==1 and walk1!=ch1['pos'] and len(req)==1;b.close()
