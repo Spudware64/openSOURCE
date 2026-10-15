@@ -573,7 +573,9 @@ impl World {
                     continue;
                 }
                 if a > z {
-                    let t = (a - 0.03125) / (a - z);
+                    // Contact-skin entry may precede the sweep. Keep its normal
+                    // and collide at zero instead of discarding an outside hull.
+                    let t = ((a - 0.03125) / (a - z)).max(0.);
                     if t > enter {
                         enter = t;
                         hit = plane.normal;
