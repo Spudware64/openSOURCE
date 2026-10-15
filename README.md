@@ -1,5 +1,41 @@
 # Source 1 map explorer — Rust / wgpu
 
+## Windows: update and debug build
+
+Install Git for Windows and Rust via rustup (including the MSVC build prerequisites).
+From PowerShell in this checkout:
+
+```powershell
+.\update-debug.ps1                       # git pull --ff-only, cargo build; does not launch
+.\update-debug.ps1 -Run                  # build then launch chamber 00
+.\update-debug.ps1 -Run -Trace            # launch with bounded diagnostics
+.\update-debug.ps1 -Run -Trace -TraceSeconds 300 -Map maps/testchmb_a_01.bsp
+# Optional: -GamePath 'D:\SteamLibrary\steamapps\common\Portal\portal'
+```
+
+Default game directory: `C:\.programs\Steam\steamapps\common\Portal\portal`.
+The script runs from its own directory, never resets local changes, and stops on pull/build failure.
+If execution policy blocks it, review the script and use a policy permitted by your machine administrator; the script does not change policy or credentials.
+
+Each `-Run -Trace` creates a unique ignored `logs/<timestamp>-<id>/` containing
+`console.log` (combined stdout/stderr, also shown in the terminal) and `controller.csv`
+(created when the interactive window initializes). Startup output identifies build, executable,
+game path, map and selected GPU adapter. CSV defaults to 120 simulation seconds (14,400 ticks),
+configurable from 1–3600 seconds; paused/load time is not simulation time. Direct launches can set
+`SOURCE_CONTROLLER_TRACE` to a **new** filename and `SOURCE_CONTROLLER_TRACE_SECONDS`.
+Tracing is opt-in; disabled tracing does not run extra support sweeps or format CSV rows.
+CSV is buffered, flushed at most every 120 ticks and at the cap/normal close; forced process termination
+can lose buffered tail rows. Existing trace files are never overwritten.
+
+Rows include previous/current feet, post-runtime feet, controller/runtime displacement, velocity,
+current hull/eye height, physics and interpolated render eye, input/ground/crouch state, old/new support
+model IDs and their raw/resolved transforms. `raw_after`/`resolved_after` track the **old** support
+across its runtime update; `new_support_raw`/`new_support_resolved` identify the new support after movement.
+`probe_drop18_fraction` and `probe_drop18_normal` are a separate measured 18-unit downward hull sweep,
+**not** the internal step-selection result or collision flags (those are not exposed by this trace).
+No controller physics, original assets, or elevator behavior is changed/fixed by these diagnostics.
+
+
 ## Latest: full Chamber01 → Chamber02 route verified
 
 **A continuous route now runs from Chamber01's authored spawn through gun acquisition, middle lift, both later portal gaps and final elevator into Chamber02, without noclip, staged positions or forced puzzle inputs.** The actual BSP has no cube/plate puzzle: its later section is two portal gaps, so none was invented. Existing generic gameplay semantics suffice; the new opt-in input driver and regression establish continuous completion of this BSP, not whole-engine/game parity.

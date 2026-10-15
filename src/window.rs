@@ -539,6 +539,10 @@ fn interactive_impl(
                                     let alpha = (accumulator * 120.).clamp(0., 1.);
                                     let fields = vec![trace_tick.to_string(), frames.to_string(), (1f32/120.).to_string(), trace_frame_dt.to_string(), csv(&trace_map), csv(&trace_exe), csv(env!("SOURCE_BUILD_GIT")), csv(&format!("{:?}", player.position)), csv(&format!("{:?}", player.velocity)), player.grounded.to_string(), player.crouched.to_string(), player.eye_height().to_string(), csv(&format!("{:?}", player.position + Vec3::Z * player.eye_height())), csv(&format!("{:?}", render_position.sample(&player, alpha) + Vec3::Z * player.eye_height())), alpha.to_string(), csv(&format!("{input:?}")), (down(KeyCode::Space)>0.).to_string(), (down(KeyCode::ControlLeft)>0.).to_string(), controls.captured.to_string(), player.noclip.to_string(), player.yaw.to_string(), player.pitch.to_string(), csv(&format!("{support:?}")), csv(&format!("{support_after:?}")), csv(&format!("{raw_before:?}")), csv(&format!("{raw_after:?}")), csv(&format!("{resolved_before:?}")), csv(&format!("{resolved_after:?}")), csv(&format!("{:?}", trace_runtime_position-before))];
                                     trace_tick += 1;
+                                    // Diagnostic-only downward sweep; not a controller decision.
+                                    let (drop_fraction, drop_normal) = world.trace_height(player.position, player.position - Vec3::Z * 18., player.height());
+                                    let mut fields = fields;
+                                    fields.extend([csv(&format!("{before:?}")), csv(&format!("{trace_runtime_position:?}")), csv(&format!("{:?}", player.position - trace_runtime_position)), player.height().to_string(), drop_fraction.to_string(), csv(&format!("{drop_normal:?}")), csv(&format!("{:?}", support_after.and_then(|i| runtime.origins.get(i).copied()))), csv(&format!("{:?}", support_after.and_then(|i| resolved.get(i).copied())))]);
                                     fields.join(",")
                                 });
                             }

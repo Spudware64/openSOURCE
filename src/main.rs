@@ -85,6 +85,7 @@ fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     let game = game.ok_or("--game must select a directory containing gameinfo.txt")?;
     let map = map.ok_or("--map required")?;
+    println!("startup: build={} exe={:?} game={game:?} map={map:?} play={play}", env!("SOURCE_BUILD_GIT"), std::env::current_exe());
     if play == output.is_some() {
         return Err("select either --play or --output FILE.png".into());
     }
