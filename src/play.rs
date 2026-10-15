@@ -667,8 +667,21 @@ impl Player {
             w.trace_height(self.position, self.position - Vec3::Z * 2., self.height());
         self.grounded = ground < 1. && n.z > 0.7;
         if self.grounded {
-            self.velocity.x = wish.x;
-            self.velocity.y = wish.y;
+            // Bounded Source-style ground friction and projected acceleration.
+            // Keep the existing speed cap; these coefficients are a local policy,
+            // not a claim of recovered Valve movement tuning.
+            let speed = self.velocity.truncate().length();
+            if speed > 0. {
+                let next = (speed - speed.max(100.) * 4. * dt).max(0.);
+                self.velocity.x *= next / speed;
+                self.velocity.y *= next / speed;
+            }
+            if wish.length_squared() > 0. {
+                let direction = wish.normalize();
+                let add = (wish.length() - self.velocity.dot(direction))
+                    .clamp(0., 10. * wish.length() * dt);
+                self.velocity += direction * add;
+            }
         } else if wish.length_squared() > 0. {
             let direction = wish.normalize();
             let add = (wish.length() - self.velocity.dot(direction)).clamp(0., 1000. * dt);

@@ -88,7 +88,16 @@ impl Route {
                 let ready = self.phase != 5
                     || self.launched
                     || g.portals[0].is_some_and(|q| q.center.y > 570.);
-                if ready {
+                if self.phase == 5 && !ready {
+                    // Hold the run-up mark while waiting for the rotating gun;
+                    // friction no longer stops a player in a single tick.
+                    let mark = Vec3::new(96., 544., p.position.z);
+                    let correction = mark - p.position - p.velocity * 0.15;
+                    if correction.truncate().length() > 1. {
+                        p.yaw = correction.y.atan2(correction.x);
+                        input = Vec3::X;
+                    }
+                } else if ready {
                     input = Vec3::X;
                 }
                 jump = (self.phase == 5 && ready && !self.launched)
