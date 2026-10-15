@@ -1,5 +1,20 @@
 //! Portal game rules, separate from generic Source asset/render modules.
 use crate::assets::Assets;
+/// Select game rules independently of platform-specific shell syntax.
+/// An explicit explorer override remains available for diagnostics.
+pub fn rules_enabled(bytes: &[u8], override_value: Option<&str>) -> Result<bool, String> {
+    if let Some(value) = override_value {
+        return match value {
+            "0" => Ok(false),
+            "1" => Ok(true),
+            _ => Err("SOURCE_PORTALS must be 0 or 1".into()),
+        };
+    }
+    Ok(crate::entity::parse_entities(crate::lump(bytes, 0, 1)?)?
+        .iter()
+        .any(|entity| matches!(entity.get("classname"), Some("prop_portal" | "weapon_portalgun"))))
+}
+
 pub struct Game {
     pub automatic_surfaces: Option<Surfaces>,
     pub portals: [Option<Portal>; 2],

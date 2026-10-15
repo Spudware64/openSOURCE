@@ -68,7 +68,7 @@ Free bodies cross linked portals with mapped velocity, including the actual cham
 
 ## Latest linked-portal increment
 
-**Genuine one-hop linked portal views and player traversal now work against chamber 00's actual assets.** Opt in with `SOURCE_PORTALS=1`; the generic Source explorer remains the default. Click to capture, then **LMB blue / RMB orange**, aiming at screen centre. Existing WASD/Space/Ctrl/E/Esc/R/N controls remain. No substitute portal-gun model is drawn.
+**One-hop linked portal views and player traversal are enabled automatically for maps authoring `prop_portal` or `weapon_portalgun`.** No shell environment setup is needed for the normal Portal `--game ... --map ... --play` command, including on Windows. `SOURCE_PORTALS=0` explicitly selects the generic explorer; `SOURCE_PORTALS=1` explicitly enables rules for diagnostic maps. Click to capture, then **LMB blue / RMB orange**, aiming at screen centre. Existing WASD/Space/Ctrl/E/Esc/R/N controls remain. No substitute portal-gun model is drawn. Chamber 00's first real portal pair follows its authored 66.5-second startup delay; activation and linkage are not forced early.
 
 ```sh
 SOURCE_PORTALS=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play

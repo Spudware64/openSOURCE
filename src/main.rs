@@ -106,11 +106,13 @@ fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("material warning: {warning}");
     }
     if play {
-        let surfaces = if std::env::var_os("SOURCE_PORTALS").is_some() {
-            Some(portal_bsp_viewer::portal::Surfaces::load(&bytes, &fs)?)
-        } else {
-            None
-        };
+        let portal_override = std::env::var("SOURCE_PORTALS").ok();
+        let surfaces =
+            if portal_bsp_viewer::portal::rules_enabled(&bytes, portal_override.as_deref())? {
+                Some(portal_bsp_viewer::portal::Surfaces::load(&bytes, &fs)?)
+            } else {
+                None
+            };
         let root = portal_bsp_viewer::session::GameRoot::new(game, workers)?;
         return portal_bsp_viewer::interactive_game(&bytes, scene, surfaces, root)
             .map_err(Into::into);
