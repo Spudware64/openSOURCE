@@ -91,7 +91,7 @@ controller-chamber01-native.log, controller-progression-native.log.
 Inspected native surfaces include chamber01-full/phase-40.png (visible linked
 remote room through blue aperture) and phase-32.png (supported arrival cabin).
 
-## Unresolved acceptance
+## Prior-pass unresolved acceptance (superseded where noted below)
 
 - Constant tall/small oscillation is not reproduced by the standing/elevator-center
   traces. Walking support-switch traces and a matching Windows route remain needed.
@@ -102,3 +102,96 @@ remote room through blue aperture) and phase-32.png (supported arrival cabin).
   recovered. Render-only interpolation and instantaneous stance remain approximations.
 - No Bevy migration: changing engines would not resolve these missing semantics.
 - Windows physical keyboard/mouse and visual feel remain unverified.
+
+## Standing/walking support follow-up
+
+### Reproduced causes, not camera smoothing
+
+1. A swept brush whose starting clearance is positive but smaller than the
+   0.03125 contact skin discarded its negative epsilon-biased entry fraction.
+   A standing/walking hull then entered the solid; subsequent sweeps began inside
+   and could not recover an entry hit. `tests/contact_epsilon.rs` failed at the
+   first tick (clearance 0.0001, feet Z=-0.16656668). Clamping a genuine entry to
+   zero retains the contact normal without treating an initially embedded hull as
+   a new entry. Standing/walking tests pass at 60/120/240 Hz physics dt.
+2. Model floor triangles used only their three expanded edge halfspaces, missing
+   the X/Y box-axis separating planes. Acute decorative wall triangles therefore
+   supported a player far outside the actual triangle footprint. On the real
+   middle elevator, center feet falsely settled at 189.19131 instead of 146.59492
+   (42.59639 units too high). Walking changed which phantom surface won: the
+   diagnostic fell to 178.57 or 158.90. Adding the missing triangle/AABB footprint
+   axes removes those false supports; it adds no platform geometry.
+3. Ground carry selected any dynamic brush within its probe, ignoring a nearer
+   world floor, and returned the first nearby mesh support. The nearest actual
+   floor now wins, with world winning coplanar ties. Three explicit ground-identity
+   regressions cover a lower train, a nearer train, and coplanar world/train.
+   This follows the original binary's distinction between ground entities and
+   base velocity, but remains displacement carry rather than full Source parity.
+4. The expanded boundary walk exposed a separate failure hidden by the center
+   ride: the player walked through the visible cabin side, reached the shaft wall,
+   and stalled the train at Z=325.04077 instead of 790. The fix uses continuous
+   AABB/triangle SAT for the actual posed rigid side triangles of solid one-clip
+   models parented to `func_tracktrain`. It does **not** turn triangles into
+   unbounded prism shells. Per-instance bounds reject unrelated geometry.
+   Applying mesh collision to every prop also blocked the automatic gun's own
+   ray; that rejected experiment is not shipped. Scope is moving train attachments.
+   A walkable contact on the cabin's small side lip also participates in ground
+   selection, so the train carries it rather than leaving it behind when starting.
+
+`src/mesh_collision.rs` is geometric render-mesh collision, **not decoded PHY or
+VPhysics parity**. Rigid initial posed triangles translate with their parent;
+animated/deforming collision, general rotated-train collision, door
+EnableCollision/DisableCollision parity and full Source ground/base-velocity
+semantics remain outside this repair. No assets or original DLLs were modified
+or executed. Existing REA ground evidence above was reused; exploratory PHY
+inspection did not become an unverified PHY implementation.
+
+### Acceptance actually exercised
+
+- `tests/support_boundaries.rs`: actual middle-lift floor height, repeated input
+  walks across triangles, stable support-relative height, eye offset 64, no crouch,
+  full authored 576-unit ride. The initial test was red on the 189.19131 false floor.
+- `tests/support_cadence.rs`: walk against the north cabin boundary then stand
+  through the full ride. 30/60/144 Hz and irregular rendered-frame schedules all
+  produce exactly equal final player/velocity/train state at fixed 120 Hz physics.
+  The boundary detail creates a real 3.045868-unit step while walking; after
+  settling, per-tick support-relative height change stays below 0.1. The original
+  no-side-collision version failed the unchanged full-rise assertion at Z=325.04077.
+- The old spawn trace now explicitly excludes 120 settling ticks after an authored
+  intro viewcontrol horizontally relocates the player. Falling onto its different
+  floor is not standing jitter; this does not exclude ordinary simulation motion.
+- Correct floor/collision changes exposed a brittle portal run-up in the input
+  driver. It now brakes at the two run-up marks and jumps nearer the aperture,
+  using ordinary controls only. No pose, velocity or portal state assignments were
+  added. Chamber01 full route still verifies automatic gun, pickup, owned channel,
+  four crossings, cleanser, authored exit and supported chamber02 arrival.
+- Final suite: **126 passing, one explicitly skipped known baseline failure**.
+  Running that baseline separately still fails left 1/right 2 at
+  `tests/rigid.rs::blocked_maker_does_not_embed_or_fire_spawn_output`.
+- Final native Apple M4/Metal window runs exit normally: chamber01 full route;
+  chamber00-to-01 elevator transition plus destination walk-off; and the new
+  `SOURCE_PARITY_SMOKE=support-boundary SOURCE_PARITY_EXIT=1` fixture.
+  The boundary fixture only stages its starting pose; all subsequent movement,
+  collision, triggers and lift travel are simulated normally. It is not evidence
+  of a continuous authored-spawn chamber00 completion.
+- Inspected actual native surface PNGs: boundary frames 180/570 maintain the same
+  wall-relative view during and after travel; progression transition-0716 shows
+  the destination corridor floor and elevator behind the walked-off player.
+  Chamber01 final arrival capture faces the cabin wall; it is not a floor view.
+  These are presented GPU surfaces, not desktop/physical-input verification.
+
+Local retained logs (not Git assets): `evidence/support-suite-final.log`,
+`support-known-failure-final.log`, `mesh-sides-boundary-tests.log`,
+`mesh-sides-route-tests.log`, `support-boundary-native.log`,
+`support-chamber01-native-final.log`, `support-progression-native-final.log`.
+
+### Still unresolved
+
+The user's exact persistent stationary tall/small oscillation on Windows has not
+been observed directly. The concrete phantom-height, contact-skin fall-through,
+wrong support ownership and north-boundary train stall are reproduced and
+regression-tested here; they must not be described as proof that every Windows
+height/portal report is resolved. Physical Windows keyboard/mouse, original
+StepMove/stance parity, complete cabin/animated-door collision and arbitrary
+support-boundary routes still need verification. No Bevy migration, invisible
+platforms or teleport/physics smoothing was introduced.
