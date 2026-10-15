@@ -65,6 +65,8 @@ pub struct World {
     pub model_origins: Vec<Vec3>,
     pub model_solid: Vec<bool>,
     floor_support: Vec<Vec<Vec<Plane>>>,
+    mesh_sides: Vec<Vec<crate::mesh_collision::Group>>,
+    train_models: std::collections::HashSet<usize>,
 }
 impl World {
     /// Rigid upward triangle support from actual posed MDL geometry. This is not PHY collision.
@@ -75,10 +77,12 @@ impl World {
         }
         self.floor_support
             .resize_with(scene.origins.len(), Vec::new);
+        self.mesh_sides.resize_with(scene.origins.len(), Vec::new);
         for instance in &scene.animations {
             if !instance.solid || instance.skeleton.clips.len() != 1 {
                 continue;
             }
+            let mut sides = Vec::new();
             for tri in scene.vertices[instance.range.clone()].chunks_exact(3) {
                 let points = [
                     Vec3::from(tri[0].position),
@@ -88,6 +92,13 @@ impl World {
                 let normal = Vec3::from(tri[0].normal)
                     + Vec3::from(tri[1].normal)
                     + Vec3::from(tri[2].normal);
+                let geometric_normal = (points[1] - points[0]).cross(points[2] - points[0]);
+                if geometric_normal.length_squared() > 0.001
+                    && geometric_normal.normalize().z.abs() < 0.7
+                    && self.train_models.contains(&(tri[0].model as usize))
+                {
+                    sides.push(crate::mesh_collision::Triangle::new(points));
+                }
                 if normal.normalize_or_zero().z < 0.99
                     || (points[0].z - points[1].z).abs() > 0.01
                     || (points[0].z - points[2].z).abs() > 0.01
@@ -136,6 +147,10 @@ impl World {
                     self.floor_support[tri[0].model as usize].push(brush);
                 }
             }
+            if !sides.is_empty() {
+                let model = scene.vertices[instance.range.start].model as usize;
+                self.mesh_sides[model].push(crate::mesh_collision::Group::new(sides));
+            }
         }
     }
     pub fn from_brushes(brushes: Vec<Vec<Plane>>) -> Self {
@@ -144,6 +159,8 @@ impl World {
             rigid: vec![],
             rigid_ids: vec![],
             floor_support: vec![vec![]],
+            mesh_sides: vec![vec![]],
+            train_models: Default::default(),
             model_brushes: vec![brushes.clone()],
             model_origins: vec![Vec3::ZERO],
             model_solid: vec![true],
@@ -241,12 +258,16 @@ impl World {
             .to_radians();
         let mut origins = vec![Vec3::ZERO; model_brushes.len()];
         let mut solid = vec![true; model_brushes.len()];
+        let mut train_models = std::collections::HashSet::new();
         for e in &entities {
             if let Some(model) = e.model()? {
                 *origins
                     .get_mut(model)
                     .ok_or("entity collision model range")? = e.origin()?;
                 let class = e.get("classname").unwrap_or("");
+                if class == "func_tracktrain" {
+                    train_models.insert(model);
+                }
                 // SF_TRACKTRAIN_PASSABLE: the map's train brush is an invisible
                 // transform carrier, not the visible elevator body's collision.
                 let passable = ["func_tracktrain", "func_door", "func_door_rotating"]
@@ -288,6 +309,8 @@ impl World {
             spawn,
             yaw,
             floor_support: vec![vec![]; model_brushes.len()],
+            mesh_sides: vec![vec![]; model_brushes.len()],
+            train_models,
             model_brushes,
             model_origins: origins.clone(),
             model_solid: solid.clone(),
@@ -445,6 +468,15 @@ impl World {
                 }
             }
         }
+        for (model, triangles) in self.mesh_sides.iter().enumerate() {
+            let origin = self.model_origins[model];
+            for triangle in triangles {
+                let h = triangle.trace(start + center - origin, end + center - origin, extent);
+                if h.0 < hit.0 {
+                    hit = h;
+                }
+            }
+        }
         hit
     }
     fn portal_brush(brush: &[Plane], p: crate::portal::Portal, extent: Vec3) -> bool {
@@ -562,6 +594,20 @@ impl World {
                 if brush[2..].iter().all(|p| {
                     p.normal.dot(point) - p.distance <= p.normal.abs().dot(Vec3::new(16., 16., 0.))
                 }) {
+                    best = f;
+                    support = (model != 0).then_some(model);
+                }
+            }
+        }
+        for (model, groups) in self.mesh_sides.iter().enumerate() {
+            let origin = self.model_origins[model];
+            for group in groups {
+                let (f, n) = group.trace(
+                    position + Vec3::Z * (height * 0.5 + 0.1) - origin,
+                    position + Vec3::Z * (height * 0.5 - 2.) - origin,
+                    Vec3::new(16., 16., height * 0.5),
+                );
+                if n.z >= 0.7 && f < best {
                     best = f;
                     support = (model != 0).then_some(model);
                 }

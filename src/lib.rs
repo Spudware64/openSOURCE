@@ -1,4 +1,5 @@
 pub mod animation;
+mod mesh_collision;
 pub mod portal;
 pub mod session;
 pub fn validate(b: &[u8]) -> Result<(), String> {

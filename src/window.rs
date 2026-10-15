@@ -257,10 +257,10 @@ fn interactive_impl(
         player.yaw = a.y.to_radians();
         player.pitch = -a.x.to_radians();
     }
-    if parity.as_deref() == Some("elevator") {
+    if matches!(parity.as_deref(), Some("elevator" | "support-boundary")) {
         player.position = Vec3::new(-1472., -864., 200.);
-        player.yaw = 0.;
-        player.pitch = 0.;
+        player.yaw = if parity.as_deref() == Some("support-boundary") {std::f32::consts::FRAC_PI_2} else {0.};
+        player.pitch = if parity.as_deref() == Some("support-boundary") {-0.45} else {0.};
     }
     if parity.as_deref() == Some("dropper") {
         player.position = Vec3::new(-832., -960., 150.);
@@ -458,7 +458,13 @@ fn interactive_impl(
                                  if frames==30 {runtime.input("logic_drop_box","Trigger","");}
                                 if frames==140 {runtime.input("box_dropper_model_cover","SetAnimation","close");}
                             }
-                            for _ in 0..4 {runtime.tick(1./120.,&mut player,&mut world);if kind=="elevator" {player.step(&world,if frames>510 {Vec3::X} else {Vec3::ZERO},false,1./120.);}}
+                            for _ in 0..4 {
+                                runtime.tick(1./120.,&mut player,&mut world);
+                                if kind=="elevator" || kind=="support-boundary" {
+                                    let walk = if kind=="support-boundary" {(90..105).contains(&frames)} else {frames>510};
+                                    player.step(&world,if walk {Vec3::X} else {Vec3::ZERO},false,1./120.);
+                                }
+                            }
                             accumulator=0.;
                         } else if demo.is_some() {
                             if let Some(command) = match frames {
@@ -746,6 +752,10 @@ fn interactive_impl(
                                 println!("parity {kind} frame {frames} player {:?} grounded {} train {:?} animation {:?}",player.position,player.grounded,runtime.origins.get(37),runtime.animation_pose(if kind=="dropper" {"box_dropper_model_cover"} else {"elevator_door_model_middle"}));
                             }
                             if frames==if kind=="dropper" {220} else {570} {
+                                if kind=="support-boundary" {
+                                    assert!(runtime.origins[37].z>780. && player.grounded && !player.noclip);
+                                    assert!(player.position.truncate().distance(Vec3::new(-1472.,-864.,0.).truncate())<70.);
+                                }
                                 println!("parity smoke finished; unsupported {:?}",runtime.unknown_inputs);
                                 if std::env::var_os("SOURCE_PARITY_EXIT").is_some() {target.exit();}
                             }
