@@ -48,6 +48,31 @@ fn walking_steps_onto_eighteen_unit_ledge_but_not_tall_wall() {
     }
 }
 #[test]
+fn upward_launch_near_floor_is_not_ground_or_a_second_jump() {
+    let world = World::from_brushes(vec![box_brush(
+        Vec3::new(-500., -100., -20.),
+        Vec3::new(500., 100., 0.),
+    )]);
+    for (speed, expected) in [(140., true), (141., false)] {
+        let mut launched = Player::new(Vec3::new(0., 0., 0.1), 0.);
+        launched.velocity.z = speed;
+        launched.step(&world, Vec3::ZERO, false, 1. / 120.);
+        assert_eq!(launched.grounded, expected, "upward speed {speed}");
+    }
+    let mut p = Player::new(Vec3::new(0., 0., 0.1), 0.);
+    p.velocity = Vec3::new(0., 0., 400.);
+    p.step(&world, Vec3::ZERO, true, 1. / 120.);
+    assert!(
+        !p.grounded,
+        "a nearby floor must not ground an upward launch"
+    );
+    assert!(
+        (p.velocity.z - 395.).abs() < 0.01,
+        "held jump must not replace launch velocity: {:?}",
+        p.velocity
+    );
+}
+#[test]
 fn crouch_fits_low_ceiling_and_cannot_stand_inside_it() {
     let world = World::from_brushes(vec![
         box_brush(Vec3::new(-500., -100., -20.), Vec3::new(500., 100., 0.)),

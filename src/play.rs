@@ -683,7 +683,12 @@ impl Player {
         }
         let (ground, n) =
             w.trace_height(self.position, self.position - Vec3::Z * 2., self.height());
-        self.grounded = ground < 1. && n.z > 0.7;
+        // Original server.dll FUN_1018cef0 rejects ground above 140 u/s
+        // upward relative speed before its two-unit floor probe (REA evidence
+        // ev_4533759265b86c5b6740e7df90d184169f72d141cd43bfb6fefccd87bd1053d1).
+        // This controller carries platform displacement separately in Runtime;
+        // its velocity is already relative to that support, not world lift speed.
+        self.grounded = self.velocity.z <= 140. && ground < 1. && n.z >= 0.7;
         if self.grounded {
             // Bounded Source-style ground friction and projected acceleration.
             // Keep the existing speed cap; these coefficients are a local policy,
