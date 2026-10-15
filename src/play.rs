@@ -520,7 +520,15 @@ impl World {
         })
     }
     pub fn support_model(&self, position: Vec3, height: f32) -> Option<usize> {
-        let mut best = 1.;
+        // Carry the entity which actually wins the ground probe, not any moving
+        // brush within two units below a nearer static floor. World wins ties.
+        let (mut best, _) = Self::trace_brushes(
+            &self.model_brushes[0],
+            position + Vec3::Z * 0.1,
+            position - Vec3::Z * 2.,
+            Vec3::Z * height * 0.5,
+            Vec3::new(16., 16., height * 0.5),
+        );
         let mut support = None;
         for model in 1..self.model_brushes.len() {
             if !self.model_solid[model] {
@@ -539,18 +547,23 @@ impl World {
                 support = Some(model);
             }
         }
-        for model in 1..self.floor_support.len() {
+        for model in 0..self.floor_support.len() {
             let origin = self.model_origins[model];
             for brush in &self.floor_support[model] {
                 let top = brush[0].distance + origin.z;
                 if (position.z - top).abs() > 0.2 {
                     continue;
                 }
+                let f = ((position.z + 0.1 - top - 0.03125) / 2.1).max(0.);
+                if f >= best {
+                    continue;
+                }
                 let point = position - origin;
                 if brush[2..].iter().all(|p| {
                     p.normal.dot(point) - p.distance <= p.normal.abs().dot(Vec3::new(16., 16., 0.))
                 }) {
-                    return Some(model);
+                    best = f;
+                    support = (model != 0).then_some(model);
                 }
             }
         }
