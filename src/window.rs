@@ -35,6 +35,10 @@ fn interactive_impl(
     mut surfaces: Option<crate::portal::Surfaces>,
     root: Option<crate::session::GameRoot>,
 ) -> Result<(), String> {
+    let mut controller_trace = crate::controller_trace::open()?;
+    let trace_exe = if controller_trace.is_some() { std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() } else { String::new() };
+    let mut trace_map = if controller_trace.is_some() { let args: Vec<_> = std::env::args().collect(); args.windows(2).find(|a| a[0] == "--map").map(|a| a[1].clone()).or_else(|| args.get(2).cloned()).unwrap_or_default() } else { String::new() };
+    let mut trace_tick = 0u64;
     let mut world = World::parse(bytes)?;
     let mut runtime = crate::entity::Runtime::new(bytes)?;
     let mut portal_game = crate::portal::Game::load(bytes)?;
@@ -362,7 +366,8 @@ fn interactive_impl(
                     }
                     WindowEvent::RedrawRequested => {
                         let now = Instant::now();
-                        accumulator += (now - last).as_secs_f32().min(0.1);
+                        let trace_frame_dt = (now - last).as_secs_f32();
+                        accumulator += trace_frame_dt.min(0.1);
                         last = now;
                         let down = |k| {
                             if controls.keys.contains(&k) && controls.captured {
@@ -514,10 +519,28 @@ fn interactive_impl(
                             while accumulator >= 1. / 120. {
                                 render_position.begin_step(&player);
                                 player.set_crouch(&world, down(KeyCode::ControlLeft) > 0.);
+                                let trace_before = controller_trace.as_ref().map(|_| {
+                                    let support = if player.grounded && !player.noclip && player.velocity.z <= 0.1 { world.support_model(player.position, player.height()) } else { None };
+                                    let resolved = runtime.model_transforms().0;
+                                    (player.position, support, support.and_then(|i| runtime.origins.get(i).copied()), support.and_then(|i| resolved.get(i).copied()))
+                                });
                                 runtime.tick(1. / 120., &mut player, &mut world);
                                 portal_game.sync_runtime(&mut runtime,&mut world);
+                                let trace_runtime_position = player.position;
                                 player.step(&world, input, down(KeyCode::Space) > 0., 1. / 120.);
                                 accumulator -= 1. / 120.;
+                                crate::controller_trace::record(&mut controller_trace, || {
+                                    use crate::controller_trace::csv;
+                                    let (before, support, raw_before, resolved_before) = trace_before.unwrap();
+                                    let resolved = runtime.model_transforms().0;
+                                    let support_after = world.support_model(player.position, player.height());
+                                    let raw_after = support.and_then(|i| runtime.origins.get(i).copied());
+                                    let resolved_after = support.and_then(|i| resolved.get(i).copied());
+                                    let alpha = (accumulator * 120.).clamp(0., 1.);
+                                    let fields = vec![trace_tick.to_string(), frames.to_string(), (1f32/120.).to_string(), trace_frame_dt.to_string(), csv(&trace_map), csv(&trace_exe), csv(env!("SOURCE_BUILD_GIT")), csv(&format!("{:?}", player.position)), csv(&format!("{:?}", player.velocity)), player.grounded.to_string(), player.crouched.to_string(), player.eye_height().to_string(), csv(&format!("{:?}", player.position + Vec3::Z * player.eye_height())), csv(&format!("{:?}", render_position.sample(&player, alpha) + Vec3::Z * player.eye_height())), alpha.to_string(), csv(&format!("{input:?}")), (down(KeyCode::Space)>0.).to_string(), (down(KeyCode::ControlLeft)>0.).to_string(), controls.captured.to_string(), player.noclip.to_string(), player.yaw.to_string(), player.pitch.to_string(), csv(&format!("{support:?}")), csv(&format!("{support_after:?}")), csv(&format!("{raw_before:?}")), csv(&format!("{raw_after:?}")), csv(&format!("{resolved_before:?}")), csv(&format!("{resolved_after:?}")), csv(&format!("{:?}", trace_runtime_position-before))];
+                                    trace_tick += 1;
+                                    fields.join(",")
+                                });
                             }
                         }
                         portal_game.sync_runtime(&mut runtime, &mut world);
@@ -537,6 +560,7 @@ fn interactive_impl(
                                     // Old scene buffers/textures/bind groups are dropped together after submitted work completes.
                                     drop(textured.take()); drop(scene.take());
                                     textured=Some(gpu);scene=Some(next.scene);world=next.world;runtime=next.runtime;
+                                    if controller_trace.is_some() { trace_map = request.map.clone(); }
                                     player=next.player;portal_game=next.game;surfaces=next.surfaces;
                                     render_position = crate::play::RenderPosition::default();
                                     controls=crate::play::Controls::default();accumulator=0.;last=Instant::now();

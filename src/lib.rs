@@ -139,6 +139,7 @@ pub fn surface_rgba(bytes: &[u8], bgra: bool) -> Vec<u8> {
     }
     out
 }
+mod controller_trace;
 mod window;
 pub use window::{interactive, interactive_game, interactive_portals, interactive_scene};
 mod gpu;
