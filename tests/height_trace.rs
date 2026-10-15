@@ -23,12 +23,19 @@ fn authored_spawn_and_elevator_height_trace() {
         };
         let mut previous = 0.;
         let mut max_delta = 0f32;
+        let mut settled_after = 120;
         for tick in 0..2400 {
+            let before_runtime = p.position;
             r.tick(1. / 120., &mut p, &mut w);
+            // The authored intro viewcontrol relocates the player horizontally.
+            // Its resulting fall onto a different floor is not standing jitter.
+            if p.position.truncate().distance(before_runtime.truncate()) > 0.1 {
+                settled_after = tick + 120;
+            }
             p.set_crouch(&w, false);
             p.step(&w, Vec3::ZERO, false, 1. / 120.);
             let relative = p.position.z - if elevator { r.origins[37].z } else { 0. };
-            if tick > 120 {
+            if tick > settled_after {
                 max_delta = max_delta.max((relative - previous).abs());
             }
             previous = relative;

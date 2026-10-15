@@ -120,6 +120,19 @@ impl World {
                     });
                 }
                 if brush.len() == 5 {
+                    // Triangle-edge halfspaces alone are not the exact swept-box
+                    // footprint: they invent support beyond acute corners. Include
+                    // the box-axis separating planes (the 2-D triangle/AABB SAT).
+                    let lo = points[0].min(points[1]).min(points[2]);
+                    let hi = points[0].max(points[1]).max(points[2]);
+                    for (normal, distance) in [
+                        (Vec3::X, hi.x),
+                        (-Vec3::X, -lo.x),
+                        (Vec3::Y, hi.y),
+                        (-Vec3::Y, -lo.y),
+                    ] {
+                        brush.push(Plane { normal, distance });
+                    }
                     self.floor_support[tri[0].model as usize].push(brush);
                 }
             }
