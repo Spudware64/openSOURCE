@@ -185,6 +185,40 @@ Local retained logs (not Git assets): `evidence/support-suite-final.log`,
 `mesh-sides-route-tests.log`, `support-boundary-native.log`,
 `support-chamber01-native-final.log`, `support-progression-native-final.log`.
 
+### Targeted entry/jump binary follow-up
+
+A bounded static pass re-opened the immutable server image with the same SHA-256.
+New original-binary observations (names below remain inferred):
+
+- `0x1018d370` is a jump-button candidate: requires an existing ground entity,
+  checks old button bit 2, clears ground, and sets that bit on acceptance. Its
+  ordinary branch computes `sqrt(2 * gravity * 21.0)` times the surface jump
+  factor; a separate branch selected by `DAT_10676e80` uses **160.0** instead.
+  Standing adds existing vertical velocity; duck-related flags replace it.
+  Evidence `ev_1b956661ddf05824f9de80541c9f1b452823de354fd5e33e8cf5e93a3f15e268`.
+- That routine calls `0x1018f7f0`, which subtracts **one half** of gravity times
+  player gravity scale times tick interval from vertical velocity, then calls
+  the velocity-validation candidate `0x1018dc90`.
+  Evidence `ev_00b7b160e67d0d971ff950c158499d1b3e483de6c02f63a4269344b208de1048`.
+- `0x101bbb10` reads the float at `DAT_107052b4 + 0x2c`; this pass did not
+  establish its initialized/runtime value or the identity of `DAT_10676e80`.
+  Evidence `ev_6de46284d65ad064756fea14ef188e0d68b19c1a751d61999ef3a56e42c2c6cb`.
+
+These are base-routine static observations, **not proof of the active Portal
+controller override or of runtime jump tuning**. Current Rust still uses 270
+impulse, 600 gravity and full pre-movement integration. Do not silently replace
+these with 160 or a derived impulse until the active override and gravity
+configuration are traced and the existing jump routes are checked.
+
+Source inspection identifies two entry hypotheses, not reproduced root causes:
+rendered one-way floors cannot block a horizontal entry from below their top,
+while the current 18-unit step trial runs only when horizontal travel is blocked;
+and Runtime carries raw model-origin displacement before updating resolved parent
+transforms. Neither observation alone establishes the reported elevator seam
+failure. No speculative physics repair, arbitrary snap or smoothing was committed.
+Input-only real-map entry from the corridor remains the acceptance requirement;
+a center ride or staged starting pose cannot satisfy it. Windows remains untested.
+
 ### Still unresolved
 
 The user's exact persistent stationary tall/small oscillation on Windows has not
