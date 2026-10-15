@@ -80,7 +80,19 @@ impl Route {
         let mut jump = false;
         if let Some(target) = target {
             let delta = target - p.position;
-            if ![5, 11, 22, 26].contains(&self.phase) && delta.truncate().length() < 4. {
+            if [21, 25].contains(&self.phase) {
+                // Settle the run-up using controls, not a pose/velocity assignment.
+                // Carrying lateral momentum around the preceding corner can miss
+                // the portal aperture even when the position reaches its mark.
+                let correction = delta - p.velocity * 0.2;
+                if delta.truncate().length() < 4. && p.velocity.truncate().length() < 5. {
+                    self.advance(p);
+                } else if correction.truncate().length() > 2. {
+                    p.yaw = correction.y.atan2(correction.x);
+                    p.pitch = 0.;
+                    input = Vec3::X;
+                }
+            } else if ![5, 11, 22, 26].contains(&self.phase) && delta.truncate().length() < 4. {
                 self.advance(p);
             } else {
                 p.yaw = delta.y.atan2(delta.x);
@@ -103,7 +115,8 @@ impl Route {
                 jump = (self.phase == 5 && ready && !self.launched)
                     || (self.phase == 11 && self.phase_ticks == 1)
                     || (self.phase == 15 && p.position.y < -250. && !self.launched)
-                    || ([22, 26].contains(&self.phase) && self.phase_ticks == 1)
+                    || (self.phase == 22 && p.position.x < -682. && !self.launched)
+                    || (self.phase == 26 && p.position.y > 1066. && !self.launched)
                     || (self.phase == 29 && p.position.x < -1780. && !self.launched);
                 if jump {
                     self.launched = true;
