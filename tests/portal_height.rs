@@ -13,6 +13,9 @@ fn actual_east_placed_portal_jump_cannot_leak_through_without_crossing() {
         Some(Portal::new(Vec3::new(-384., 288., 52.), Vec3::X, Vec3::Z)),
     ];
     let mut p = Player::new(Vec3::new(284.75684, 200.0118, -127.96875), 0.);
+    // Reproduce the original running jump at the aperture. Ground input now
+    // accelerates rather than granting full speed on the first jump tick.
+    p.velocity = Vec3::X * 190.;
     for tick in 0..120 {
         p.step(&w, Vec3::X, tick == 0, 1. / 120.);
         if p.portal_crossings > 0 {
