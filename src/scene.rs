@@ -98,6 +98,20 @@ fn material(fs: &Assets, name: &str, depth: usize) -> Result<Material, String> {
         }
         return Ok(m);
     }
+    if shader.eq_ignore_ascii_case("Refract") {
+        // A bounded clear-glass approximation: never interpret a normal map or
+        // envmap mask as opaque diffuse. Screen-space distortion is not implemented.
+        return Ok(Material {
+            texture: Texture {
+                width: 1,
+                height: 1,
+                rgba: vec![200, 220, 230, 32],
+            },
+            unlit: true,
+            alpha_test: false,
+            translucent: true,
+        });
+    }
     let base = kv::text(fields, "$basetexture")
         .ok_or_else(|| format!("{path}: unsupported shader/no basetexture {shader}"))?;
     let base = base.trim_end_matches(".vtf");
@@ -223,21 +237,23 @@ impl Scene {
                 .par_iter()
                 .map(|name| {
                     if name.starts_with("tools/") {
-                        Ok((vec![255; TILE * TILE * 4], false))
+                        Ok((vec![255; TILE * TILE * 4], false, false))
                     } else {
-                        material(fs, name, 0).map(|m| (resample(&m), m.unlit))
+                        material(fs, name, 0).map(|m| (resample(&m), m.unlit, m.translucent))
                     }
                 })
                 .collect::<Vec<_>>()
         });
         let mut textures = vec![];
         let mut unlit = vec![];
+        let mut translucent = vec![];
         let mut warnings = vec![];
         for (n, result) in decoded.into_iter().enumerate() {
             match result {
-                Ok((t, u)) => {
+                Ok((t, u, blend)) => {
                     textures.push(t);
                     unlit.push(u);
+                    translucent.push(blend);
                 }
                 Err(e) => {
                     warnings.push(format!("{}: {e}", materials[n]));
@@ -250,6 +266,7 @@ impl Scene {
                     }
                     textures.push(t);
                     unlit.push(false);
+                    translucent.push(false);
                 }
             }
         }
@@ -453,7 +470,14 @@ impl Scene {
                     light_uv,
                     layer: layer as u32,
                     model: face_models[fi] as u32,
-                    unlit: if unlit[layer] { 1. } else { 0. },
+                    // Negative encoding keeps the vertex ABI stable for exports.
+                    unlit: if translucent[layer] {
+                        -1. - (u8::from(unlit[layer]) as f32)
+                    } else if unlit[layer] {
+                        1.
+                    } else {
+                        0.
+                    },
                     normal: (rotations[face_models[fi]] * normal).to_array(),
                 });
             }

@@ -3,6 +3,10 @@ use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 pub(crate) struct GpuScene {
     pipeline: wgpu::RenderPipeline,
+    translucent_pipeline: wgpu::RenderPipeline,
+    translucent: Vec<(u32, Vec3, usize)>,
+    matrices: [std::cell::Cell<Mat4>; 3],
+    origins: std::cell::RefCell<Vec<Vec3>>,
     bind: [wgpu::BindGroup; 3],
     vertices: wgpu::Buffer,
     camera: [wgpu::Buffer; 3],
@@ -210,7 +214,11 @@ impl GpuScene {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        let pipeline=device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("textured Source 1"),layout:Some(&pipeline_layout),vertex:wgpu::VertexState{module:&shader,entry_point:"vs",buffers:&[wgpu::VertexBufferLayout{array_stride:std::mem::size_of::<MeshVertex>() as u64,step_mode:wgpu::VertexStepMode::Vertex,attributes:&wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x2,3=>Uint32,4=>Uint32,5=>Float32,6=>Float32x3]}]},fragment:Some(wgpu::FragmentState{module:&shader,entry_point:"fs",targets:&[Some(wgpu::ColorTargetState{format,blend:None,write_mask:wgpu::ColorWrites::ALL})]}),primitive:wgpu::PrimitiveState{cull_mode:None,..Default::default()},depth_stencil:Some(wgpu::DepthStencilState{format:wgpu::TextureFormat::Depth32Float,depth_write_enabled:true,depth_compare:wgpu::CompareFunction::Less,stencil:Default::default(),bias:Default::default()}),multisample:Default::default(),multiview:None});
+        let make_pipeline = |blend: bool| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("textured Source 1"),layout:Some(&pipeline_layout),vertex:wgpu::VertexState{module:&shader,entry_point:"vs",buffers:&[wgpu::VertexBufferLayout{array_stride:std::mem::size_of::<MeshVertex>() as u64,step_mode:wgpu::VertexStepMode::Vertex,attributes:&wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x2,3=>Uint32,4=>Uint32,5=>Float32,6=>Float32x3]}]},fragment:Some(wgpu::FragmentState{module:&shader,entry_point:if blend {"fs_blend"} else {"fs"},targets:&[Some(wgpu::ColorTargetState{format,blend:if blend {Some(wgpu::BlendState::ALPHA_BLENDING)} else {None},write_mask:wgpu::ColorWrites::ALL})]}),primitive:wgpu::PrimitiveState{cull_mode:None,..Default::default()},depth_stencil:Some(wgpu::DepthStencilState{format:wgpu::TextureFormat::Depth32Float,depth_write_enabled:!blend,depth_compare:wgpu::CompareFunction::Less,stencil:Default::default(),bias:Default::default()}),multisample:Default::default(),multiview:None})
+        };
+        let pipeline = make_pipeline(false);
+        let translucent_pipeline = make_pipeline(true);
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("BSP textured vertices"),
             contents: bytemuck::cast_slice(&scene.vertices),
@@ -218,6 +226,25 @@ impl GpuScene {
         });
         let result = Self {
             pipeline,
+            translucent_pipeline,
+            translucent: scene
+                .vertices
+                .chunks_exact(3)
+                .enumerate()
+                .filter(|(_, tri)| tri[0].unlit < 0.)
+                .map(|(i, tri)| {
+                    (
+                        i as u32 * 3,
+                        (Vec3::from(tri[0].position)
+                            + Vec3::from(tri[1].position)
+                            + Vec3::from(tri[2].position))
+                            / 3.,
+                        tri[0].model as usize,
+                    )
+                })
+                .collect(),
+            matrices: std::array::from_fn(|_| std::cell::Cell::new(Mat4::IDENTITY)),
+            origins: std::cell::RefCell::new(scene.origins.clone()),
             bind,
             vertices,
             camera,
@@ -240,6 +267,7 @@ impl GpuScene {
         }
     }
     pub fn update(&self, queue: &wgpu::Queue, camera: Mat4, origins: &[Vec3]) {
+        *self.origins.borrow_mut() = origins.to_vec();
         self.update_view(queue, 0, camera, glam::Vec4::ZERO);
         let mut models = [[0f32; 4]; 256];
         for (a, p) in models.iter_mut().zip(origins) {
@@ -264,6 +292,7 @@ impl GpuScene {
         queue.write_buffer(&self.models, 0, bytemuck::cast_slice(&models));
     }
     pub fn update_view(&self, queue: &wgpu::Queue, index: usize, matrix: Mat4, clip: glam::Vec4) {
+        self.matrices[index].set(matrix);
         let mut data = [0f32; 20];
         data[..16].copy_from_slice(&matrix.to_cols_array());
         data[16..].copy_from_slice(&clip.to_array());
@@ -277,5 +306,21 @@ impl GpuScene {
         pass.set_bind_group(0, &self.bind[view], &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.draw(0..self.count, 0..1);
+        pass.set_pipeline(&self.translucent_pipeline);
+        let matrix = self.matrices[view].get();
+        let origins = self.origins.borrow();
+        let mut triangles: Vec<_> = self
+            .translucent
+            .iter()
+            .map(|&(first, center, model)| {
+                let clip = matrix
+                    * (center + origins.get(model).copied().unwrap_or(Vec3::ZERO)).extend(1.);
+                (first, clip.z / clip.w)
+            })
+            .collect();
+        triangles.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for (first, _) in triangles {
+            pass.draw(first..first + 3, 0..1);
+        }
     }
 }
