@@ -1,5 +1,23 @@
 use glam::Vec3;
 use winit::keyboard::KeyCode;
+/// Render-only one-tick interpolation. Never feeds a visual position into physics.
+#[derive(Default)]
+pub struct RenderPosition {
+    previous: Option<(Vec3, u64)>,
+}
+impl RenderPosition {
+    pub fn begin_step(&mut self, player: &Player) {
+        self.previous = Some((player.position, player.portal_crossings as u64));
+    }
+    pub fn sample(&self, player: &Player, alpha: f32) -> Vec3 {
+        match self.previous {
+            Some((position, crossings)) if crossings == player.portal_crossings as u64 => {
+                position.lerp(player.position, alpha.clamp(0., 1.))
+            }
+            _ => player.position,
+        }
+    }
+}
 #[derive(Default)]
 pub struct Controls {
     pub keys: std::collections::HashSet<KeyCode>,

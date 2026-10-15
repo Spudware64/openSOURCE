@@ -240,6 +240,7 @@ fn interactive_impl(
     let mut controls = crate::play::Controls::default();
     let mut last = Instant::now();
     let mut accumulator = 0f32;
+    let mut render_position = crate::play::RenderPosition::default();
     let mut frames = 0u64;
     let smoke = std::env::var_os("SOURCE_SMOKE")
         .or_else(|| std::env::var_os("PORTAL_SMOKE"))
@@ -328,6 +329,7 @@ fn interactive_impl(
                                         }
                                         crate::play::Action::Reset => {
                                             player = Player::new(world.spawn, world.yaw);
+                                            render_position = crate::play::RenderPosition::default();
                                             println!("reset");
                                         }
                                         crate::play::Action::Throw => { if controls.captured { runtime.throw_held(&player); } }
@@ -504,6 +506,7 @@ fn interactive_impl(
                             }
                         } else {
                             while accumulator >= 1. / 120. {
+                                render_position.begin_step(&player);
                                 player.set_crouch(&world, down(KeyCode::ControlLeft) > 0.);
                                 runtime.tick(1. / 120., &mut player, &mut world);
                                 portal_game.sync_runtime(&mut runtime,&mut world);
@@ -529,6 +532,7 @@ fn interactive_impl(
                                     drop(textured.take()); drop(scene.take());
                                     textured=Some(gpu);scene=Some(next.scene);world=next.world;runtime=next.runtime;
                                     player=next.player;portal_game=next.game;surfaces=next.surfaces;
+                                    render_position = crate::play::RenderPosition::default();
                                     controls=crate::play::Controls::default();accumulator=0.;last=Instant::now();
                                     transitioned_at=Some(frames);
                                     let _=window.set_cursor_grab(CursorGrabMode::None);window.set_cursor_visible(true);
@@ -564,8 +568,17 @@ fn interactive_impl(
                         }
                         if player.position.z < world.spawn.z - 2000. {
                             player = Player::new(world.spawn, world.yaw);
+                            render_position = crate::play::RenderPosition::default();
                         }
-                        let eye = player.position + Vec3::Z * player.eye_height();
+                        // Scripted routes retain exact deterministic capture cameras.
+                        // The interactive camera interpolates translation only; mouse
+                        // look remains immediate and portal transfers snap atomically.
+                        let position = if smoke || parity.is_some() || portal_smoke {
+                            player.position
+                        } else {
+                            render_position.sample(&player, accumulator * 120.)
+                        };
+                        let eye = position + Vec3::Z * player.eye_height();
                         let m = Mat4::perspective_rh(
                             75f32.to_radians(),
                             config.width as f32 / config.height as f32,
