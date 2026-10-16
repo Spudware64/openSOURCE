@@ -87,6 +87,7 @@ impl ChangeLevel {
     }
 }
 pub struct Runtime {
+    physics: crate::rigid_physics::RigidPhysics,
     scene_times: HashMap<usize, (f32, Option<f32>)>,
     pub portal_inventory: [bool; 2],
     pub portal_shots: Vec<(usize, Vec3, Vec3)>,
@@ -190,6 +191,7 @@ impl Runtime {
             return Err("physics population limit (128 authored bodies)".into());
         }
         let mut r = Self {
+            physics: Default::default(),
             scene_times: HashMap::new(),
             portal_inventory: [false; 2],
             portal_shots: vec![],
@@ -1136,6 +1138,26 @@ impl Runtime {
         for id in completed {
             self.fire(id, "OnCompletion");
         }
+        // Linked portal transit and held-object constraints remain the legacy adapter.
+        // Ordinary free bodies are now advanced together by Rapier, not swept independently.
+        let rapier_active = !world.portals.iter().all(Option::is_some);
+        let ids: Vec<_> = self.states.iter().enumerate().filter_map(|(id,s)|
+            (rapier_active && !s.killed && s.model.is_some() && s.velocity.is_some() && self.held != Some(id)).then_some(id)).collect();
+        self.physics.retain(&ids);
+        if rapier_active {
+            self.physics.sync_world(&world.brushes);
+            for &id in &ids {
+                let s = &self.states[id];
+                self.physics.sync_body(id, self.origins[s.model.unwrap()] + (s.bounds.0+s.bounds.1)*0.5, (s.bounds.1-s.bounds.0)*0.5, s.velocity.unwrap());
+            }
+            self.physics.step(dt);
+            for &id in &ids {
+                let (center,velocity) = self.physics.state(id);
+                let s = &mut self.states[id];
+                self.origins[s.model.unwrap()] = center - (s.bounds.0+s.bounds.1)*0.5;
+                s.velocity = Some(velocity);
+            }
+        }
         let colliders = self
             .states
             .iter()
@@ -1266,6 +1288,7 @@ impl Runtime {
                     *velocity = Vec3::ZERO;
                     continue;
                 }
+                if rapier_active { continue; }
                 velocity.z -= 600. * dt;
                 let start = self.origins[model] + offset;
                 let mut position = start;

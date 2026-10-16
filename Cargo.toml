@@ -12,6 +12,7 @@ png = "0.17"
 winit = "0.29"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 rayon = "1.10"
+rapier3d = "0.36.1"
 
 [profile.dev]
 # Keep real debug builds (symbols and assertions), but optimize simulation math.
