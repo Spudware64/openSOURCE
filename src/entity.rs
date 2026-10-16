@@ -96,6 +96,7 @@ pub struct Runtime {
     pub portal_events: Option<Vec<(String, bool)>>,
     states: Vec<State>,
     held: Option<usize>,
+    carry_portal: Option<(crate::portal::Portal, crate::portal::Portal, u64)>,
     animations: HashMap<usize, Playback>,
     pub origins: Vec<Vec3>,
     pub visible: Vec<bool>,
@@ -197,6 +198,7 @@ impl Runtime {
             portal_events: None,
             states: vec![],
             held: None,
+            carry_portal: None,
             animations: HashMap::new(),
             origins: vec![Vec3::ZERO; bounds.len()],
             visible: vec![true; bounds.len()],
@@ -999,6 +1001,7 @@ impl Runtime {
         let Some(id) = self.held.take() else {
             return false;
         };
+        self.carry_portal = None;
         self.states[id].velocity = Some(player.velocity + player.forward() * 400.);
         self.fire(id, "OnPhysGunDrop");
         true
@@ -1024,6 +1027,7 @@ impl Runtime {
             }
         }
         if let Some(id) = self.held.take() {
+            self.carry_portal = None;
             self.states[id].velocity = Some(player.velocity);
             self.fire(id, "OnPhysGunDrop");
             return true;
@@ -1070,6 +1074,7 @@ impl Runtime {
             }
             if self.states[id].velocity.is_some() {
                 self.held = Some(id);
+                self.carry_portal = None;
                 self.fire(id, "OnPlayerPickup");
                 return true;
             }
@@ -1191,45 +1196,71 @@ impl Runtime {
                     let eye = player.position + Vec3::Z * player.eye_height();
                     let mut target = eye + player.forward() * 64. + offset;
                     let mut position = self.origins[model] + offset;
-                    // The grab ray and held body live in different spaces once
-                    // the ray passes through a portal. Sweep to the entry before
-                    // mapping; never drag the cube through the intervening map.
-                    if let [Some(a), Some(b)] = world.portals {
-                        for (src, dst) in [(a, b), (b, a)] {
-                            let d0 = src.normal.dot(eye - src.center);
-                            let d1 = src.normal.dot(target - src.center);
-                            if d0 > 0. && d1 <= 0. {
-                                let at = eye.lerp(target, d0 / (d0 - d1));
-                                if !src.fits(at, extent) {
-                                    continue;
-                                }
-                                let mapped = src.map_point(dst, at) + dst.normal * 0.05;
-                                if !dst.fits(mapped, extent)
-                                    || world.body_overlap(id, mapped, extent)
-                                {
-                                    continue;
-                                }
-                                if position.distance(src.center) < position.distance(dst.center) {
-                                    let (f, _) = trace(id, position, at, extent);
-                                    if f < 1. {
-                                        continue;
-                                    }
-                                    position = mapped;
-                                }
-                                target = src.map_point(dst, target);
-                                break;
-                            }
+                    // Carry ownership follows actual body crossings, not a fresh
+                    // eye-ray guess or proximity to either portal each tick.
+                    if let Some((src, dst, crossings)) = self.carry_portal {
+                        if player.portal_crossings != crossings
+                            || !world
+                                .portals
+                                .iter()
+                                .flatten()
+                                .any(|p| p.center == src.center)
+                            || !world
+                                .portals
+                                .iter()
+                                .flatten()
+                                .any(|p| p.center == dst.center)
+                        {
+                            self.carry_portal = None;
+                        } else {
+                            target = src.map_point(dst, target);
                         }
                     }
-                    let mut delta = target - position;
+                    let raised = position + Vec3::Z;
+                    let (support, normal) = trace(id, raised, position, extent);
+                    if support < 1. && normal.z > 0.7 {
+                        position = raised.lerp(position, support);
+                    }
                     for _ in 0..4 {
-                        let (f, n) = trace(id, position, position + delta, extent);
+                        let delta = target - position;
+                        let (f, n) = trace(id, position, target, extent);
+                        let mut crossed = false;
+                        if let [Some(a), Some(b)] = world.portals {
+                            for (src, dst) in [(a, b), (b, a)] {
+                                let d0 = src.normal.dot(position - src.center);
+                                let d1 = src.normal.dot(target - src.center);
+                                if d0 > 0. && d1 <= 0. {
+                                    let t = d0 / (d0 - d1);
+                                    let at = position.lerp(target, t);
+                                    let mapped = src.map_point(dst, at) + dst.normal * 0.05;
+                                    if t <= f + 0.00001
+                                        && src.fits(at, extent)
+                                        && dst.fits(mapped, extent)
+                                        && !world.body_overlap(id, mapped, extent)
+                                    {
+                                        position = mapped;
+                                        target = src.map_point(dst, target);
+                                        self.carry_portal = if self.carry_portal.is_some() {
+                                            None
+                                        } else {
+                                            Some((src, dst, player.portal_crossings))
+                                        };
+                                        crossed = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if crossed {
+                            continue;
+                        }
                         position += delta * f;
                         if f >= 1. {
                             break;
                         }
-                        delta *= 1. - f;
-                        delta -= n * delta.dot(n).min(0.);
+                        let mut remaining = delta * (1. - f);
+                        remaining -= n * remaining.dot(n).min(0.);
+                        target = position + remaining;
                     }
                     self.origins[model] = position - offset;
                     *velocity = Vec3::ZERO;
