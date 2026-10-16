@@ -14,5 +14,12 @@ zip = { version = "0.6", default-features = false, features = ["deflate"] }
 rayon = "1.10"
 
 [profile.dev]
-debug = 0
-incremental = false
+# Keep real debug builds (symbols and assertions), but optimize simulation math.
+opt-level = 1
+debug = 1
+debug-assertions = true
+overflow-checks = true
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
