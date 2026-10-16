@@ -1138,19 +1138,17 @@ impl Runtime {
         for id in completed {
             self.fire(id, "OnCompletion");
         }
-        // Linked portal transit and held-object constraints remain the legacy adapter.
-        // Ordinary free bodies are now advanced together by Rapier, not swept independently.
-        let rapier_active = !world.portals.iter().all(Option::is_some);
+        // All free bodies share one Rapier world, including linked portal scenes.
         let ids: Vec<_> = self.states.iter().enumerate().filter_map(|(id,s)|
-            (rapier_active && !s.killed && s.model.is_some() && s.velocity.is_some() && self.held != Some(id)).then_some(id)).collect();
+            (!s.killed && s.model.is_some() && s.velocity.is_some() && self.held != Some(id)).then_some(id)).collect();
         self.physics.retain(&ids);
-        if rapier_active {
+        {
             self.physics.sync_world(&world.brushes);
             for &id in &ids {
                 let s = &self.states[id];
                 self.physics.sync_body(id, self.origins[s.model.unwrap()] + (s.bounds.0+s.bounds.1)*0.5, (s.bounds.1-s.bounds.0)*0.5, s.velocity.unwrap());
             }
-            self.physics.step(dt);
+            self.physics.step(dt, world);
             for &id in &ids {
                 let (center,velocity) = self.physics.state(id);
                 let s = &mut self.states[id];
@@ -1288,61 +1286,7 @@ impl Runtime {
                     *velocity = Vec3::ZERO;
                     continue;
                 }
-                if rapier_active { continue; }
-                velocity.z -= 600. * dt;
-                let start = self.origins[model] + offset;
-                let mut position = start;
-                // Render-derived hulls can extend a fraction beyond an authored
-                // resting pose. A sweep beginning inside the floor misses its
-                // entering plane, so recover a sub-unit support penetration
-                // before integrating gravity. Never depenetrate through walls.
-                let raised = position + Vec3::Z;
-                let (support, normal) = trace(id, raised, position, extent);
-                if support < 1. && normal.z > 0.7 {
-                    position = raised.lerp(position, support);
-                }
-                let mut remaining = dt;
-                for _ in 0..4 {
-                    let end = position + *velocity * remaining;
-                    let (f, n) = trace(id, position, end, extent);
-                    let mut crossed = false;
-                    if let [Some(a), Some(b)] = world.portals {
-                        for (src, dst) in [(a, b), (b, a)] {
-                            let d0 = src.normal.dot(position - src.center);
-                            let d1 = src.normal.dot(end - src.center);
-                            if d0 > 0. && d1 <= 0. {
-                                let t = d0 / (d0 - d1);
-                                let at = position.lerp(end, t);
-                                let mapped = src.map_point(dst, at) + dst.normal * 0.05;
-                                if t <= f + 0.00001
-                                    && src.fits(at, extent)
-                                    && dst.fits(mapped, extent)
-                                    && !world.body_overlap(id, mapped, extent)
-                                {
-                                    position = mapped;
-                                    *velocity = src.map_vector(dst, *velocity);
-                                    remaining *= 1. - t;
-                                    crossed = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if crossed {
-                        continue;
-                    }
-                    position = position.lerp(end, f);
-                    if f >= 1. {
-                        break;
-                    }
-                    remaining *= 1. - f;
-                    *velocity -= n * velocity.dot(n).min(0.);
-                    if n.z > 0.7 {
-                        velocity.x *= 0.95;
-                        velocity.y *= 0.95;
-                    }
-                }
-                self.origins[model] = position - offset;
+
             }
         }
         let (ids, brushes): (Vec<_>, Vec<_>) = self

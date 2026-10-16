@@ -1,6 +1,6 @@
 //! First runtime migration: free, upright cubes use Rapier contacts and impulses.
 //! Source coordinates are Z-up; 1 Source unit is 0.0254 metres.
-use crate::play::Plane;
+use crate::play::{Plane, World};
 use glam::Vec3;
 use rapier3d::prelude::*;
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ impl RigidPhysics {
                 .remove(h, &mut self.islands, &mut self.bodies, &mut self.soft, true);
         }
         self.geometry = brushes.to_vec();
-        for brush in brushes {
+        for (index, brush) in brushes.iter().enumerate() {
             if let [plane] = brush.as_slice() {
                 {
                     let shape = ColliderBuilder::halfspace(rapier3d::na::Unit::new_unchecked(
@@ -54,6 +54,7 @@ impl RigidPhysics {
                     self.scenery.push(
                         self.colliders.insert(
                             shape
+                                .user_data((index + 1) as u128)
                                 .translation(vector(plane.normal * plane.distance))
                                 .build(),
                         ),
@@ -84,8 +85,10 @@ impl RigidPhysics {
                 }
             }
             if let Some(shape) = ColliderBuilder::convex_hull(&points) {
-                self.scenery
-                    .push(self.colliders.insert(shape.friction(0.6).build()));
+                self.scenery.push(
+                    self.colliders
+                        .insert(shape.user_data((index + 1) as u128).friction(0.6).build()),
+                );
             }
         }
     }
@@ -109,11 +112,46 @@ impl RigidPhysics {
             );
         }
     }
-    pub fn sync_body(&mut self, id: usize, center: Vec3, extent: Vec3, velocity: Vec3) {
+    pub fn sync_body(&mut self, id: usize, mut center: Vec3, extent: Vec3, velocity: Vec3) {
+        // Authored/render-derived bounds may start a fraction inside a floor.
+        // Recover that spawn/teleport overlap before the first contact solver
+        // can remove approach momentum against a temporarily rejected aperture.
+        let external_move = self
+            .handles
+            .get(&id)
+            .is_none_or(|h| source(self.bodies[*h].translation()).distance_squared(center) > 0.01);
+        if external_move {
+            let e = vector(extent);
+            let shape = Cuboid::new(e);
+            let raised = Pose::from_translation(vector(center + Vec3::Z));
+            let mut fraction = 1.;
+            for h in &self.scenery {
+                let c = &self.colliders[*h];
+                if let Ok(Some(hit)) = rapier3d::parry::query::cast_shapes(
+                    &raised,
+                    vector(-Vec3::Z),
+                    &shape,
+                    c.position(),
+                    Vector::ZERO,
+                    c.shape(),
+                    rapier3d::parry::query::ShapeCastOptions {
+                        max_time_of_impact: 1.,
+                        target_distance: 0.03125 * SCALE,
+                        ..Default::default()
+                    },
+                ) {
+                    if hit.normal2.z > 0.7 && hit.time_of_impact > 0. {
+                        fraction = fraction.min(hit.time_of_impact);
+                    }
+                }
+            }
+            center += Vec3::Z * (1. - fraction);
+        }
         let h = *self.handles.entry(id).or_insert_with(|| {
             let h = self.bodies.insert(
                 RigidBodyBuilder::dynamic()
                     .translation(vector(center))
+                    .user_data((id + 1) as u128)
                     .lock_rotations()
                     .ccd_enabled(true)
                     .build(),
@@ -121,6 +159,7 @@ impl RigidPhysics {
             let e = vector(extent.max(Vec3::splat(0.01)));
             self.colliders.insert_with_parent(
                 ColliderBuilder::cuboid(e.x, e.y, e.z)
+                    .active_hooks(ActiveHooks::MODIFY_SOLVER_CONTACTS)
                     .contact_skin(0.03125 * SCALE)
                     .friction(0.6)
                     .restitution(0.)
@@ -138,13 +177,36 @@ impl RigidPhysics {
             body.set_linvel(vector(velocity), true);
         }
     }
-    pub fn step(&mut self, dt: f32) {
+    pub fn step(&mut self, dt: f32, world: &World) {
         self.accumulator += dt;
         let parameters = IntegrationParameters {
             dt: 1. / 120.,
             ..Default::default()
         };
         while self.accumulator + 1e-7 >= parameters.dt {
+            let hooks = PortalContacts {
+                world,
+                dt: parameters.dt,
+            };
+            let mut previous = Vec::new();
+            for (&id, &handle) in &self.handles {
+                let body = &mut self.bodies[handle];
+                let start = source(body.translation());
+                let extent = source(
+                    self.colliders[body.colliders()[0]]
+                        .shape()
+                        .as_cuboid()
+                        .unwrap()
+                        .half_extents,
+                );
+                let end = start + source(body.linvel()) * parameters.dt;
+                let opening = world
+                    .brushes
+                    .iter()
+                    .any(|b| world.aperture_except(b, start, end, extent, Some(id)));
+                body.enable_ccd(!opening);
+                previous.push((id, handle, start, extent));
+            }
             self.pipeline.step(
                 vector(Vec3::new(0., 0., -600.)),
                 &parameters,
@@ -157,14 +219,95 @@ impl RigidPhysics {
                 &mut self.multibody,
                 &mut self.soft,
                 &mut self.ccd,
-                &(),
+                &hooks,
                 &(),
             );
+            if let [Some(a), Some(b)] = world.portals {
+                for (id, handle, start, extent) in previous {
+                    let body = &mut self.bodies[handle];
+                    let end = source(body.translation());
+                    for (src, dst) in [(a, b), (b, a)] {
+                        let d0 = src.normal.dot(start - src.center);
+                        let d1 = src.normal.dot(end - src.center);
+                        if d0 > 0. && d1 <= 0. {
+                            let t = d0 / (d0 - d1);
+                            let at = start.lerp(end, t);
+                            let mapped = src.map_point(dst, at) + dst.normal * 0.05;
+                            if src.fits(at, extent)
+                                && dst.fits(mapped, extent)
+                                && !world.body_overlap(id, mapped, extent)
+                            {
+                                body.set_translation(
+                                    vector(src.map_point(dst, end) + dst.normal * 0.05),
+                                    true,
+                                );
+                                body.set_linvel(
+                                    vector(src.map_vector(dst, source(body.linvel()))),
+                                    true,
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             self.accumulator -= parameters.dt;
         }
     }
     pub fn state(&self, id: usize) -> (Vec3, Vec3) {
         let b = &self.bodies[self.handles[&id]];
         (source(b.translation()), source(b.linvel()))
+    }
+}
+
+struct PortalContacts<'a> {
+    world: &'a World,
+    dt: f32,
+}
+impl PhysicsHooks for PortalContacts<'_> {
+    fn modify_solver_contacts(&self, context: &mut ContactModificationContext) {
+        let (body, scenery) = match (context.rigid_body1, context.rigid_body2) {
+            (Some(h), None) => (h, context.collider2),
+            (None, Some(h)) => (h, context.collider1),
+            _ => return,
+        };
+        let index = context.colliders[scenery].user_data as usize;
+        if index == 0 {
+            return;
+        }
+        let Some(brush) = self.world.brushes.get(index - 1) else {
+            return;
+        };
+        let body = &context.bodies[body];
+        let id = body.user_data as usize - 1;
+        let extent = source(
+            context.colliders[body.colliders()[0]]
+                .shape()
+                .as_cuboid()
+                .unwrap()
+                .half_extents,
+        );
+        let start = source(body.translation());
+        let end = start + source(body.linvel()) * self.dt;
+        if !self
+            .world
+            .aperture_except(brush, start, end, extent, Some(id))
+        {
+            return;
+        }
+        if let Some(rigid) = context.rigid_mut() {
+            // Remove only the backing-plane manifold, never floor/edge contacts
+            // that happen to belong to the same convex BSP brush.
+            let normal = Vec3::new(rigid.normal.x, rigid.normal.y, rigid.normal.z);
+            if self
+                .world
+                .portals
+                .iter()
+                .flatten()
+                .any(|p| normal.dot(p.normal).abs() > 0.999)
+            {
+                rigid.solver_contacts.clear();
+            }
+        }
     }
 }

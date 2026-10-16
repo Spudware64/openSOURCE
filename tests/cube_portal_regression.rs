@@ -51,6 +51,51 @@ fn thrown_cube_crosses_solid_portal_wall_and_updates_collider() {
     );
 }
 #[test]
+fn linked_portal_scene_keeps_ordinary_wall_contacts() {
+    let (mut r, mut w, mut p) = fixture();
+    // Pair remains linked, but the thrown cube is outside its opening.
+    for portal in w.portals.iter_mut().flatten() {
+        portal.center.y = 100.;
+    }
+    assert!(r.use_player(&p, &w));
+    assert!(r.throw_held(&p));
+    for _ in 0..60 {
+        r.tick(1. / 120., &mut p, &mut w);
+    }
+    assert!(
+        r.origins[1].x >= 19. && r.origins[1].x < 100.,
+        "ordinary wall leaked: {:?}",
+        r.origins[1]
+    );
+}
+
+#[test]
+fn thrown_cube_rejects_blocked_destination() {
+    let (mut r, mut w, mut p) = fixture();
+    // A separate solid occupies the destination aperture, not its backing wall.
+    w.brushes.push(vec![
+        Plane {
+            normal: Vec3::X,
+            distance: 205.,
+        },
+        Plane {
+            normal: -Vec3::X,
+            distance: -175.,
+        },
+    ]);
+    assert!(r.use_player(&p, &w));
+    assert!(r.throw_held(&p));
+    for _ in 0..60 {
+        r.tick(1. / 120., &mut p, &mut w);
+    }
+    assert!(
+        r.origins[1].x >= 19. && r.origins[1].x < 100.,
+        "blocked exit leaked: {:?}",
+        r.origins[1]
+    );
+}
+
+#[test]
 fn carried_cube_crosses_solid_portal_wall() {
     let (mut r, mut w, mut p) = fixture();
     assert!(r.use_player(&p, &w));

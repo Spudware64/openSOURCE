@@ -23,7 +23,6 @@ fn thrown_cube_transfers_momentum_to_another_runtime_cube() {
 }
 
 #[test]
-#[ignore = "migration gap: linked portals still select the legacy free-body solver"]
 fn linked_portals_keep_runtime_cube_impulses_active() {
     use portal_bsp_viewer::portal::Portal;
     let es = parse_entities(br#"{"classname" "prop_physics" "origin" "10 0 64"}{"classname" "prop_physics" "origin" "65 0 64"}"#).unwrap();

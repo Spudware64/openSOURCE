@@ -495,7 +495,7 @@ impl World {
     fn aperture(&self, brush: &[Plane], start: Vec3, end: Vec3, extent: Vec3) -> bool {
         self.aperture_except(brush, start, end, extent, None)
     }
-    fn aperture_except(
+    pub(crate) fn aperture_except(
         &self,
         brush: &[Plane],
         start: Vec3,
