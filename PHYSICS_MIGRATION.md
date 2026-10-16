@@ -53,3 +53,20 @@ kinematic colliders and test real elevator entry/walking/full ride; migrate
 portal apertures/transfers with matching render and collision readback; replace
 player collision with Rapier character-controller queries without changing
 Source movement rules.
+
+## Linked-portal migration blocker
+
+A production-runtime regression now records cube-to-cube impulse transfer while
+both portals are linked (linked_portals_keep_runtime_cube_impulses_active).
+It is explicitly ignored pending migration; running it with --ignored fails
+because the second cube remains at x=65 instead of moving beyond x=70.
+
+A bounded attempt to use Rapier contact-pair hooks with the existing validated
+aperture/hull/exit-clearance predicate and swept position/velocity mapping did
+not pass actual_chamber00_thrown_cube_crosses_authored_pair: the real spawned
+cube stopped near the source wall (origin approximately -811.912, -320, 148.209)
+instead of reaching the authored destination. Suspending CCD only near validated
+openings did not resolve this. The cause is not yet isolated; do not assume CCD
+alone is responsible. That incomplete implementation was reverted. Free cubes
+in linked scenes therefore still use the legacy solver. No elevator/player
+migration or portal-physics completion is claimed.
