@@ -7,7 +7,6 @@ use portal_bsp_viewer::{
     scene::Scene,
 };
 #[test]
-#[ignore = "known reproduction: floor-level cube stops at x=-811.91; aperture fit rejected as it falls below opening"]
 fn actual_chamber00_thrown_cube_crosses_authored_pair() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();

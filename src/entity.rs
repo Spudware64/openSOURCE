@@ -1238,6 +1238,15 @@ impl Runtime {
                 velocity.z -= 600. * dt;
                 let start = self.origins[model] + offset;
                 let mut position = start;
+                // Render-derived hulls can extend a fraction beyond an authored
+                // resting pose. A sweep beginning inside the floor misses its
+                // entering plane, so recover a sub-unit support penetration
+                // before integrating gravity. Never depenetrate through walls.
+                let raised = position + Vec3::Z;
+                let (support, normal) = trace(id, raised, position, extent);
+                if support < 1. && normal.z > 0.7 {
+                    position = raised.lerp(position, support);
+                }
                 let mut remaining = dt;
                 for _ in 0..4 {
                     let end = position + *velocity * remaining;
