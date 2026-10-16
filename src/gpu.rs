@@ -227,7 +227,7 @@ fn render_internal(
             if let Some(gpu) = &textured {
                 if portals.iter().all(Option::is_some) {
                     for index in 0..2 {
-                        portal_gpu.remote(&mut enc, gpu, &dv, index);
+                        portal_gpu.remote(&mut enc, gpu, index);
                     }
                 }
             }

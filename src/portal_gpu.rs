@@ -15,10 +15,26 @@ struct Vertex {
 }
 pub(crate) struct PortalGpu {
     pub views: [wgpu::TextureView; 2],
+    depth: wgpu::TextureView,
     pipeline: wgpu::RenderPipeline,
     bind: wgpu::BindGroup,
     vertices: wgpu::Buffer,
     count: u32,
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bounded_dimensions_resize_preserve_projection_aspect() {
+        assert_eq!(super::target_size(3840,2160,1.,1280), (1280,720));
+        assert_eq!(super::target_size(800,600,0.5,1280), (400,300));
+        assert_eq!(super::target_size(1920,1080,1.,4096), (1920,1080));
+        assert_eq!(super::target_size(1,1,0.5,1280), (1,1));
+    }
+}
+fn target_size(width: u32, height: u32, scale: f32, cap: u32) -> (u32,u32) {
+    let factor = scale.min(cap as f32 / width.max(height).max(1) as f32);
+    (((width as f32 * factor).round() as u32).max(1),
+     ((height as f32 * factor).round() as u32).max(1))
 }
 impl PortalGpu {
     pub fn new(
@@ -27,6 +43,24 @@ impl PortalGpu {
         width: u32,
         height: u32,
     ) -> Self {
+        // Main projection and framebuffer remain full resolution. Only remote views are bounded.
+        let scale = std::env::var("SOURCE_PORTAL_SCALE").ok().and_then(|v| v.parse::<f32>().ok())
+            .filter(|s| s.is_finite() && *s > 0. && *s <= 1.).unwrap_or(1.);
+        let cap = std::env::var("SOURCE_PORTAL_MAX_EDGE").ok().and_then(|v| v.parse::<u32>().ok())
+            .filter(|c| *c > 0).unwrap_or(1280).min(device.limits().max_texture_dimension_2d);
+        let viewport = [width as f32, height as f32, 0., 0.];
+        let (width,height) = target_size(width,height,scale,cap);
+        let depth = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("bounded portal depth"),
+            size: wgpu::Extent3d { width,height,depth_or_array_layers:1 },
+            mip_level_count:1,sample_count:1,dimension:wgpu::TextureDimension::D2,
+            format:wgpu::TextureFormat::Depth32Float,usage:wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats:&[],
+        }).create_view(&Default::default());
+        let viewport = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("main viewport for normalized portal sampling"),
+            contents: bytemuck::cast_slice(&viewport), usage:wgpu::BufferUsages::UNIFORM,
+        });
         let views = std::array::from_fn(|_| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -58,12 +92,16 @@ impl PortalGpu {
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("linked view textures"),
-            entries: &[entry(0), entry(1)],
+            entries: &[entry(0), entry(1), wgpu::BindGroupLayoutEntry {
+                binding:2,visibility:wgpu::ShaderStages::FRAGMENT,
+                ty:wgpu::BindingType::Buffer { ty:wgpu::BufferBindingType::Uniform,has_dynamic_offset:false,min_binding_size:None },count:None,
+            }],
         });
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &layout,
             entries: &[
+                wgpu::BindGroupEntry { binding:2,resource:viewport.as_entire_binding() },
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&views[0]),
@@ -90,6 +128,7 @@ impl PortalGpu {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         Self {
+            depth,
             views,
             pipeline,
             bind,
@@ -144,7 +183,6 @@ impl PortalGpu {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         gpu: &GpuScene,
-        depth: &wgpu::TextureView,
         index: usize,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -158,7 +196,7 @@ impl PortalGpu {
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth,
+                view: &self.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.),
                     store: wgpu::StoreOp::Store,

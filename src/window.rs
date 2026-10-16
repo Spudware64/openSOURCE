@@ -654,7 +654,7 @@ fn interactive_impl(
                         let cv = frame.texture.create_view(&Default::default());
                         let dv = &depth;
                         let mut enc = device.create_command_encoder(&Default::default());
-                        if let (Some(portals),Some(gpu))=(&portal_gpu,&textured) {if world.portals.iter().all(Option::is_some) {for index in 0..2 {portals.remote(&mut enc,gpu,dv,index);}}}
+                        if let (Some(portals),Some(gpu))=(&portal_gpu,&textured) {if world.portals.iter().all(Option::is_some) {for index in 0..2 {portals.remote(&mut enc,gpu,index);}}}
                         {
                             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                                 label: None,
