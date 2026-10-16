@@ -712,6 +712,8 @@ pub fn smoke_tick(frame: u64, p: &mut Player, w: &World) {
 pub struct Player {
     pub view_up: Vec3,
     pub portal_crossings: u64,
+    /// Actual most recent controller transfer (source, destination).
+    pub last_portal_transfer: Option<(crate::portal::Portal, crate::portal::Portal)>,
     pub position: Vec3,
     pub velocity: Vec3,
     pub yaw: f32,
@@ -730,6 +732,7 @@ impl Player {
             velocity: Vec3::ZERO,
             view_up: Vec3::Z,
             portal_crossings: 0,
+            last_portal_transfer: None,
             yaw,
             pitch: 0.,
             grounded: false,
@@ -865,6 +868,7 @@ impl Player {
                             self.view_up = src.map_vector(dst, self.view_up);
                             self.grounded = false;
                             self.portal_crossings += 1;
+                            self.last_portal_transfer = Some((src, dst));
                             remaining *= 1. - t;
                             crossed = true;
                             break;

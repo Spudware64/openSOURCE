@@ -99,7 +99,8 @@ pub struct Runtime {
     pub portal_events: Option<Vec<(String, bool)>>,
     states: Vec<State>,
     held: Option<usize>,
-    carry_portal: Option<(crate::portal::Portal, crate::portal::Portal, u64)>,
+    carry_player_crossings: u64,
+    carry_portal: Option<(crate::portal::Portal, crate::portal::Portal)>,
     animations: HashMap<usize, Playback>,
     pub origins: Vec<Vec3>,
     pub visible: Vec<bool>,
@@ -212,6 +213,7 @@ impl Runtime {
             portal_events: None,
             states: vec![],
             held: None,
+            carry_player_crossings: 0,
             carry_portal: None,
             animations: HashMap::new(),
             origins: vec![Vec3::ZERO; bounds.len()],
@@ -1103,6 +1105,7 @@ impl Runtime {
             }
             if self.states[id].velocity.is_some() {
                 self.held = Some(id);
+                self.carry_player_crossings = player.portal_crossings;
                 self.carry_portal = None;
                 self.sound_events.push(crate::audio::Event::one(self.time,"Weapon_PhysCannon.Pickup",None));
                 self.fire(id, "OnPlayerPickup");
@@ -1183,6 +1186,15 @@ impl Runtime {
         for id in completed {
             self.fire(id, "OnCompletion");
         }
+        // A broken link cannot keep a remote grab alive: release in the
+        // body's current frame instead of pulling it through ordinary geometry.
+        if let Some((src, dst)) = self.carry_portal {
+            let active = |saved: crate::portal::Portal| world.portals.iter().flatten()
+                .any(|p| p.center == saved.center && p.normal == saved.normal && p.up == saved.up);
+            if !active(src) || !active(dst) {
+                self.use_player(player, world);
+            }
+        }
         // All free bodies share one Rapier world, including linked portal scenes.
         let ids: Vec<_> = self.states.iter().enumerate().filter_map(|(id,s)|
             (!s.killed && s.model.is_some() && s.velocity.is_some() && self.held != Some(id)).then_some(id)).collect();
@@ -1201,6 +1213,18 @@ impl Runtime {
                 s.velocity = Some(velocity);
             }
         }
+        // Player and carried body cross independently. Keep the grab target in
+        // the body's frame until the other participant crosses the same pair.
+        if self.held.is_some() && self.carry_player_crossings != player.portal_crossings {
+            if let Some((src, dst)) = player.last_portal_transfer {
+                self.carry_portal = if self.carry_portal.is_some() {
+                    None
+                } else {
+                    Some((dst, src))
+                };
+            }
+            self.carry_player_crossings = player.portal_crossings;
+        }
         let trace = |id, start, end, extent| {
             self.physics.cast_carry(id, start, end, extent, world)
         };
@@ -1217,18 +1241,17 @@ impl Runtime {
                     let mut position = self.origins[model] + offset;
                     // Carry ownership follows actual body crossings, not a fresh
                     // eye-ray guess or proximity to either portal each tick.
-                    if let Some((src, dst, crossings)) = self.carry_portal {
-                        if player.portal_crossings != crossings
+                    if let Some((src, dst)) = self.carry_portal {
+                        if !world
+                                .portals
+                                .iter()
+                                .flatten()
+                                .any(|p| p.center == src.center && p.normal == src.normal && p.up == src.up)
                             || !world
                                 .portals
                                 .iter()
                                 .flatten()
-                                .any(|p| p.center == src.center)
-                            || !world
-                                .portals
-                                .iter()
-                                .flatten()
-                                .any(|p| p.center == dst.center)
+                                .any(|p| p.center == dst.center && p.normal == dst.normal && p.up == dst.up)
                         {
                             self.carry_portal = None;
                         } else {
@@ -1262,7 +1285,7 @@ impl Runtime {
                                         self.carry_portal = if self.carry_portal.is_some() {
                                             None
                                         } else {
-                                            Some((src, dst, player.portal_crossings))
+                                            Some((src, dst))
                                         };
                                         crossed = true;
                                         break;

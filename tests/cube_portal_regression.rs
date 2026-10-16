@@ -141,3 +141,40 @@ fn carried_cube_never_crosses_ordinary_wall_over_many_ticks() {
         assert!(r.origins[1].x >= 16., "tick {tick}: {:?}", r.origins[1]);
     }
 }
+
+#[test]
+fn carried_cube_rejects_blocked_destination_without_dragging_through_wall() {
+    let (mut r, mut w, mut p) = fixture();
+    w.brushes.push(vec![
+        Plane { normal: Vec3::X, distance: 205. },
+        Plane { normal: -Vec3::X, distance: -175. },
+    ]);
+    assert!(r.use_player(&p, &w));
+    p.position.x = 30.;
+    for tick in 0..240 {
+        r.tick(1. / 120., &mut p, &mut w);
+        assert!(r.origins[1].x >= 0. && r.origins[1].x < 90.,
+            "blocked carry tick {tick}: {:?}", r.origins[1]);
+    }
+}
+
+#[test]
+fn carried_cube_pair_fizzle_clears_mapping_without_world_wall_leak() {
+    let (mut r, mut w, mut p) = fixture();
+    assert!(r.use_player(&p, &w));
+    p.position.x = 30.;
+    r.tick(1. / 120., &mut p, &mut w);
+    assert!(r.origins[1].x > 150.);
+    let pair = w.portals;
+    w.portals = [None; 2];
+    p.position.x = 80.;
+    for _ in 0..240 {
+        r.tick(1. / 120., &mut p, &mut w);
+        assert!(r.origins[1].x > 110., "fizzle leaked through intervening wall");
+    }
+    w.portals = pair;
+    for _ in 0..120 {
+        r.tick(1. / 120., &mut p, &mut w);
+        assert!(r.origins[1].x > 110., "reactivation reused stale carry mapping");
+    }
+}
