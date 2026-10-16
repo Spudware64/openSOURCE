@@ -1498,6 +1498,7 @@ impl Runtime {
         }
         let mut changed = false;
         let old_origins = self.origins.clone();
+        let (old_resolved_origins, old_resolved_rotations) = self.model_transforms();
         let mut old_amounts = vec![None; self.states.len()];
         let mut events = vec![];
         let support = if player.grounded && !player.noclip && player.velocity.z <= 0.1 {
@@ -1599,10 +1600,15 @@ impl Runtime {
             }
         }
         if changed {
-            if let Some(model) = support {
-                player.position += self.origins[model] - old_origins[model];
-            }
             let (origins, rotations) = self.model_transforms();
+            if let Some(model) = support {
+                // A solid child may have an unchanged raw origin while its
+                // train/door parent moves. Carry in the resolved support frame,
+                // including rotation, before testing the new collision pose.
+                let local = old_resolved_rotations[model].transpose()
+                    * (old_player - old_resolved_origins[model]);
+                player.position = origins[model] + rotations[model] * local;
+            }
             world.update_transforms(&origins, &self.visible, &rotations);
             if world.overlaps(player.position, player.height()) {
                 // Transactional movement: never crush a carried rider or emit rejected OnPass.

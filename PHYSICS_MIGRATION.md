@@ -50,6 +50,22 @@ previously ignored regression is enabled), actual authored chamber00 thrown
 portal transit, actual held-cube/player crossing and destination-side drop,
 ordinary-wall rejection in a linked scene, and blocked-destination rejection.
 
+## Parent-frame carry correction (separate from Rapier migration)
+
+Runtime now resolves support-parent transforms before carrying the rider, including
+rotation, rather than subtracting raw child origins. A new synthetic parented-floor
+regression failed before the correction (motion transaction stalled at Z=0) and
+passes afterward. Existing authored elevator ride/dismount, support-boundary,
+cadence, identity and rotating-parent tests pass. The filtered integration suite
+also passes; the known blocked-maker failure remains excluded. This does not
+establish input-only original-spawn elevator entry or correct the reported model
+floor alignment.
+
+A direct player-to-Rapier cuboid-cast experiment was rejected and reverted:
+`contact_epsilon` exposed metre-space GJK/TOI normal/clearance errors for large BSP
+convexes at 60/120/240 Hz. No experimental player path is shipped. A robust query
+representation/tolerance solution is still required before replacing that path.
+
 ## Still unfinished — do not call this a complete migration
 
 - Held carry remains query-driven, without a dynamic grab joint, held-to-free
