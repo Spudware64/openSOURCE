@@ -52,6 +52,76 @@ fn placement_preserves_all_six_surface_normals_and_upright_frames() {
     }
 }
 
+fn placement_fixture(normal: Vec3) -> Surfaces {
+    let p = frame(normal);
+    Surfaces {
+        faces: vec![Surface {
+            points: [(-500., -500.), (500., -500.), (500., 500.), (-500., 500.)]
+                .map(|(x, y)| p.center + p.right() * x + p.up * y)
+                .to_vec(),
+            normal,
+            allowed: true,
+            material: "concrete/concrete_modular_fixture".into(),
+        }],
+    }
+}
+
+#[test]
+fn horizontal_placement_roll_follows_four_firing_headings() {
+    for normal in [Vec3::Z, -Vec3::Z] {
+        let surfaces = placement_fixture(normal);
+        for heading in [Vec3::X, Vec3::Y, -Vec3::X, -Vec3::Y] {
+            let direction = (heading - normal).normalize();
+            let p = surfaces
+                .place(frame(normal).center - direction * 100., direction)
+                .unwrap();
+            assert!(
+                p.up.distance(heading) < 0.001,
+                "{normal:?} {heading:?}: {p:?}"
+            );
+            assert!((p.basis().determinant() - 1.).abs() < 0.001);
+            assert!(p.right().distance(heading.cross(normal)) < 0.001);
+        }
+    }
+}
+
+#[test]
+fn vertical_and_near_vertical_placement_uses_facing_without_nan() {
+    for normal in [Vec3::Z, -Vec3::Z] {
+        let surfaces = placement_fixture(normal);
+        for heading in [Vec3::X, Vec3::Y, -Vec3::X, -Vec3::Y] {
+            for direction in [-normal, (-normal + heading * 1e-7).normalize()] {
+                let p = surfaces
+                    .place_with_facing(frame(normal).center - direction * 100., direction, heading)
+                    .unwrap();
+                assert!(p.up.distance(heading) < 0.001);
+                assert!(p.basis().is_finite());
+                assert!((p.basis().determinant() - 1.).abs() < 0.001);
+            }
+        }
+        let p = surfaces
+            .place(frame(normal).center + normal * 100., -normal)
+            .unwrap();
+        assert_eq!(p.up, Vec3::Y); // Deterministic fallback for scripted rays without yaw.
+    }
+}
+
+#[test]
+fn wall_placement_remains_upright_for_oblique_firing_headings() {
+    for normal in [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y] {
+        let surfaces = placement_fixture(normal);
+        for sideways in [-1., 1.] {
+            let direction =
+                (-normal + frame(normal).right() * sideways + Vec3::Z * 0.2).normalize();
+            let p = surfaces
+                .place(frame(normal).center - direction * 100., direction)
+                .unwrap();
+            assert!(p.up.distance(Vec3::Z) < 0.001);
+            assert!((p.basis().determinant() - 1.).abs() < 0.001);
+        }
+    }
+}
+
 #[test]
 fn linked_camera_and_screen_projection_agree_for_all_36_normal_pairs() {
     for source in normals().map(frame) {

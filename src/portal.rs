@@ -12,7 +12,12 @@ pub fn rules_enabled(bytes: &[u8], override_value: Option<&str>) -> Result<bool,
     }
     Ok(crate::entity::parse_entities(crate::lump(bytes, 0, 1)?)?
         .iter()
-        .any(|entity| matches!(entity.get("classname"), Some("prop_portal" | "weapon_portalgun"))))
+        .any(|entity| {
+            matches!(
+                entity.get("classname"),
+                Some("prop_portal" | "weapon_portalgun")
+            )
+        }))
 }
 
 pub struct Game {
@@ -93,6 +98,17 @@ impl Game {
         runtime: &crate::entity::Runtime,
         world: &mut crate::play::World,
     ) -> Result<Portal, String> {
+        self.fire_player_with_facing(index, eye, direction, direction, runtime, world)
+    }
+    pub fn fire_player_with_facing(
+        &mut self,
+        index: usize,
+        eye: Vec3,
+        direction: Vec3,
+        facing: Vec3,
+        runtime: &crate::entity::Runtime,
+        world: &mut crate::play::World,
+    ) -> Result<Portal, String> {
         if !runtime
             .portal_inventory
             .get(index)
@@ -105,7 +121,7 @@ impl Game {
             .automatic_surfaces
             .as_ref()
             .ok_or("portal surfaces unavailable")?
-            .place(eye, direction)?;
+            .place_with_facing(eye, direction, facing)?;
         let (fraction, _) = world.trace_point(eye, portal.center);
         if fraction * eye.distance(portal.center) + 0.1 < eye.distance(portal.center) {
             return Err("portal shot blocked by brush".into());
@@ -274,6 +290,15 @@ impl Surfaces {
         Ok(Self { faces })
     }
     pub fn place(&self, eye: Vec3, direction: Vec3) -> Result<Portal, String> {
+        self.place_with_facing(eye, direction, direction)
+    }
+    /// Facing supplies yaw when an exactly vertical ray has no horizontal heading.
+    pub fn place_with_facing(
+        &self,
+        eye: Vec3,
+        direction: Vec3,
+        facing: Vec3,
+    ) -> Result<Portal, String> {
         let direction = direction.normalize_or_zero();
         let mut best = 8192.;
         let mut hit = None;
@@ -306,7 +331,19 @@ impl Surfaces {
             center,
             face.normal,
             if face.normal.z.abs() > 0.99 {
-                Vec3::Y
+                // Portal top points away from the shooter along their horizontal
+                // heading. Portal::new projects this into the actual hit plane;
+                // right = up x normal keeps floor and ceiling right-handed.
+                let horizontal = |v: Vec3| Vec3::new(v.x, v.y, 0.);
+                let heading = horizontal(direction);
+                let fallback = horizontal(facing);
+                if heading.length_squared() > 1e-10 {
+                    heading.normalize()
+                } else if fallback.length_squared() > 1e-10 {
+                    fallback.normalize()
+                } else {
+                    Vec3::Y
+                }
             } else {
                 Vec3::Z
             },

@@ -309,7 +309,7 @@ fn interactive_impl(
                     } if button==MouseButton::Left || button==MouseButton::Right => {
                         if controls.captured {
                             let eye=player.position+Vec3::Z*player.eye_height();
-                            if let Err(error)=portal_game.fire_player(usize::from(button==MouseButton::Right),eye,player.forward(),&runtime,&mut world){println!("portal placement rejected: {error}");}
+                            if let Err(error)=portal_game.fire_player_with_facing(usize::from(button==MouseButton::Right),eye,player.forward(),Vec3::new(player.yaw.cos(),player.yaw.sin(),0.),&runtime,&mut world){println!("portal placement rejected: {error}");}
                             return;
                         }
                         controls.captured = window
