@@ -272,6 +272,11 @@ fn interactive_impl(
         player.yaw = if parity.as_deref() == Some("support-boundary") {std::f32::consts::FRAC_PI_2} else {0.};
         player.pitch = if parity.as_deref() == Some("support-boundary") {-0.45} else {0.};
     }
+    if parity.as_deref() == Some("elevator-entry") {
+        player.position = Vec3::new(-1360., -864., 144.1);
+        player.yaw = std::f32::consts::PI;
+        player.pitch = -0.65;
+    }
     if parity.as_deref() == Some("dropper") {
         player.position = Vec3::new(-832., -960., 150.);
         player.yaw = -std::f32::consts::FRAC_PI_2;
@@ -472,6 +477,10 @@ fn interactive_impl(
                             }
                             for _ in 0..4 {
                                 runtime.tick(1./120.,&mut player,&mut world);
+                                if kind=="elevator-entry" {
+                                    player.step(&world, if frames>=10 && player.position.x > -1470. {Vec3::X} else {Vec3::ZERO}, false, 1./120.);
+                                    if frames>40 {assert!(player.grounded && player.position.z > runtime.origins[37].z-68., "entry support {:?}", player.position);}
+                                }
                                 if kind=="elevator" || kind=="support-boundary" {
                                     let walk = if kind=="support-boundary" {(90..105).contains(&frames)} else {frames>510};
                                     player.step(&world,if walk {Vec3::X} else {Vec3::ZERO},false,1./120.);
@@ -803,7 +812,7 @@ fn interactive_impl(
                             if frames==520 {assert!((runtime.origins[16].y+836.).abs()<0.01,"pickup must release plate and close exit");println!("cube smoke complete: actual spawned model pickup, brush-colliding walk, drop, weighting, walk through exit and back, re-pickup and door closure; unsupported {:?}",runtime.unknown_inputs);if std::env::var_os("SOURCE_CUBE_EXIT").is_some(){target.exit();}}
                         }
                         if let Some(kind) = &parity {
-                            let capture = if kind=="dropper" {[0,40,100,180,220].contains(&frames)} else {[30,180,330,470,510,570].contains(&frames)};
+                            let capture = if kind=="elevator-entry" {[0,10,15,20,25,30,180,330,570].contains(&frames)} else if kind=="dropper" {[0,40,100,180,220].contains(&frames)} else {[30,180,330,470,510,570].contains(&frames)};
                             if capture {
                                 let path=format!("{parity_dir}/{kind}-{frames:04}.png");
                                 if let Err(e)=capture_surface(&device,&queue,&frame.texture,config.width,config.height,config.format,&path) {eprintln!("parity capture: {e}");target.exit();return;}

@@ -911,10 +911,14 @@ impl Player {
                 self.grounded = true;
             }
         }
+        // A raised one-way mesh floor need not block horizontal travel: the
+        // leading hull can already overlap it below its top. Still negotiate
+        // the ordinary 18-unit step, and allow an equal-distance raised route.
+        // Otherwise we leave the rim grounded below the cabin floor and fall
+        // through it; centre-staged elevator tests cannot catch this hand-off.
         if was_grounded
             && !jump
-            && (initial_velocity * dt).truncate().length_squared()
-                > (self.position - start).truncate().length_squared() + 0.001
+            && (initial_velocity * dt).truncate().length_squared() > 0.001
         {
             let (up, _) = w.trace_height(start, start + Vec3::Z * 18., self.height());
             if up >= 1. {
@@ -926,8 +930,10 @@ impl Player {
                 let stepped = top - Vec3::Z * 20. * down;
                 if down < 1.
                     && n.z > 0.7
-                    && (stepped - start).truncate().length_squared()
+                    && ((stepped - start).truncate().length_squared()
                         > (self.position - start).truncate().length_squared()
+                        || ((stepped - self.position).truncate().length_squared() < 0.001
+                            && stepped.z > start.z + 0.001))
                     && !w.overlaps(stepped, self.height())
                 {
                     self.position = stepped;
