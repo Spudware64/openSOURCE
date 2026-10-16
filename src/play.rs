@@ -416,6 +416,59 @@ impl World {
     ) -> (f32, Vec3) {
         let mut hit = (1., Vec3::ZERO);
         for (index, brush) in self.brushes.iter().enumerate() {
+            // Cutting out the backing brush must retain its aperture rim. A
+            // hull already inserted into the brush has no convex entry face,
+            // so restoring the whole brush after a failed fit loses collision.
+            if index < self.model_brushes[0].len() && extent.length_squared() >= 1. {
+                if let [Some(a), Some(b)] = self.portals {
+                    for (src, dst) in [(a, b), (b, a)] {
+                        let d0 = src.normal.dot(start + center - src.center);
+                        let d1 = src.normal.dot(end + center - src.center);
+                        let reach = src.normal.abs().dot(extent) + 8.1;
+                        if d0.min(d1) > reach
+                            || d0.max(d1) < -reach
+                            || !Self::portal_brush(brush, src, extent)
+                        {
+                            continue;
+                        }
+                        for (portal, mapped) in [(src, false), (dst, true)] {
+                            for (axis, half) in [
+                                (portal.right(), crate::portal::HALF_WIDTH),
+                                (portal.up, crate::portal::HALF_HEIGHT),
+                            ] {
+                                // The destination body remains upright; its support
+                                // extents are not the rotated source body's extents.
+                                let limit = half * 0.99 - axis.abs().dot(extent);
+                                let local_axis = if mapped {
+                                    dst.map_vector(src, axis)
+                                } else {
+                                    axis
+                                };
+                                for sign in [-1., 1.] {
+                                    let normal = -local_axis * sign;
+                                    let mut rim = brush.clone();
+                                    rim.push(Plane {
+                                        normal,
+                                        distance: normal.dot(src.center)
+                                            - limit
+                                            - normal.abs().dot(extent),
+                                    });
+                                    let h = Self::trace_brushes(
+                                        std::slice::from_ref(&rim),
+                                        start,
+                                        end,
+                                        center,
+                                        extent,
+                                    );
+                                    if h.0 < hit.0 {
+                                        hit = h;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if index < self.model_brushes[0].len()
                 && self.aperture_except(brush, start + center, end + center, extent, ignore)
             {

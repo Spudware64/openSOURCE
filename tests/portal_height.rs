@@ -65,3 +65,70 @@ fn actual_north_automatic_portal_jump_cannot_leak_through_without_crossing() {
         p.position
     );
 }
+
+#[test]
+fn actual_floor_partially_inserted_hull_cannot_slide_out_through_rim() {
+    let bytes = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
+    let fs = Assets::from_game("../portal-original/portal", Some(&bytes)).unwrap();
+    let surfaces = Surfaces::load(&bytes, &fs).unwrap();
+    for yaw in [0_f32, 45., 90.] {
+        let mut w = World::parse(&bytes).unwrap();
+        let placed = surfaces
+            .place(Vec3::new(-416., -320., 178.), -Vec3::Z)
+            .unwrap();
+        let floor = Portal::new(
+            placed.center,
+            placed.normal,
+            Vec3::new(yaw.to_radians().cos(), yaw.to_radians().sin(), 0.),
+        );
+        let wall = surfaces
+            .place(Vec3::new(-1088., -600., 640.), -Vec3::Y)
+            .unwrap();
+        w.portals = [Some(floor), Some(wall)];
+        let start = floor.center - Vec3::Z * 20.; // feet inside backing floor, centre still in front
+        let end = start + floor.right() * 60.;
+        let (t, n) = w.trace_height(start, end, 72.);
+        assert!(t < 1., "yaw {yaw}: partially inserted hull escaped rim");
+        assert!(n.dot(floor.right()) < -0.5, "yaw {yaw}: {n:?}");
+        let mut p = Player::new(start, 0.);
+        p.velocity = floor.right() * 190. - Vec3::Z * 80.;
+        for _ in 0..120 {
+            p.step(&w, Vec3::ZERO, false, 1. / 120.);
+            if p.portal_crossings > 0 {
+                break;
+            }
+            assert!(
+                p.position.z + 36. >= floor.center.z,
+                "yaw {yaw}: leaked {:?}",
+                p.position
+            );
+        }
+        assert_eq!(p.portal_crossings, 1, "yaw {yaw}: stuck {:?}", p.position);
+    }
+}
+
+#[test]
+fn actual_floor_rejected_crossing_keeps_inserted_hull_on_source_side() {
+    let bytes = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
+    let fs = Assets::from_game("../portal-original/portal", Some(&bytes)).unwrap();
+    let surfaces = Surfaces::load(&bytes, &fs).unwrap();
+    let mut w = World::parse(&bytes).unwrap();
+    let floor = surfaces
+        .place(Vec3::new(-416., -320., 178.), -Vec3::Z)
+        .unwrap();
+    // The linked destination is buried in the real backing floor: transfer
+    // must be rejected even if the source hull was already partly inserted.
+    let blocked = Portal::new(floor.center - Vec3::Z * 4., Vec3::X, Vec3::Z);
+    w.portals = [Some(floor), Some(blocked)];
+    let mut p = Player::new(floor.center - Vec3::Z * 20., 0.);
+    p.velocity = -Vec3::Z * 180.;
+    for _ in 0..120 {
+        p.step(&w, Vec3::ZERO, false, 1. / 120.);
+        assert_eq!(p.portal_crossings, 0);
+        assert!(p.position.z + 36. > floor.center.z, "{:?}", p.position);
+    }
+    // An ordinary hull outside the opening still lands on the actual floor.
+    let start = floor.center + floor.right() * 90. + Vec3::Z * 20.;
+    let (t, n) = w.trace_height(start, start - Vec3::Z * 40., 72.);
+    assert!(t < 1. && n.z > 0.7, "{t} {n:?}");
+}
