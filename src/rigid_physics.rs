@@ -11,6 +11,46 @@ fn vector(v: Vec3) -> Vector {
 fn source(v: Vector) -> Vec3 {
     Vec3::new(v.x, v.y, v.z) / SCALE
 }
+fn same_planes(a: &[Plane], b: &[Plane]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(a, b)| a.normal == b.normal && a.distance == b.distance)
+}
+
+// Only accept a common translation when all ordered plane normals are identical.
+// Recheck every plane so deformation cannot accidentally reuse a stale hull.
+fn translation_between(old: &[Plane], new: &[Plane]) -> Option<Vec3> {
+    if old.len() != new.len()
+        || old.is_empty()
+        || old.iter().zip(new).any(|(a, b)| a.normal != b.normal)
+    {
+        return None;
+    }
+    if let [a] = old {
+        return Some(a.normal * (new[0].distance - a.distance));
+    }
+    for j in 1..old.len() {
+        for k in j + 1..old.len() {
+            let (a, b, c) = (old[0].normal, old[j].normal, old[k].normal);
+            let det = a.dot(b.cross(c));
+            if det.abs() < 1e-6 {
+                continue;
+            }
+            let delta = ((new[0].distance - old[0].distance) * b.cross(c)
+                + (new[j].distance - old[j].distance) * c.cross(a)
+                + (new[k].distance - old[k].distance) * a.cross(b))
+                / det;
+            return (delta.is_finite()
+                && old.iter().zip(new).all(|(a, b)| {
+                    (a.normal.dot(delta) - (b.distance - a.distance)).abs() <= 1e-5
+                }))
+            .then_some(delta);
+        }
+    }
+    None
+}
+
 #[derive(Default)]
 pub(crate) struct RigidPhysics {
     pipeline: PhysicsPipeline,
@@ -25,35 +65,61 @@ pub(crate) struct RigidPhysics {
     ccd: CCDSolver,
     handles: HashMap<usize, RigidBodyHandle>,
     geometry: Vec<Vec<Plane>>,
-    scenery: Vec<ColliderHandle>,
+    scenery: Vec<Option<ColliderHandle>>,
+    #[cfg(test)]
+    hull_builds: usize,
     accumulator: f32,
 }
 impl RigidPhysics {
     pub fn sync_world(&mut self, brushes: &[Vec<Plane>]) {
-        let unchanged = self.geometry.len() == brushes.len()
-            && self.geometry.iter().zip(brushes).all(|(a, b)| {
-                a.len() == b.len()
-                    && a.iter()
-                        .zip(b)
-                        .all(|(a, b)| a.normal == b.normal && a.distance == b.distance)
-            });
-        if unchanged {
-            return;
+        // Brush slots are the World's stable portal/contact identifiers. Keep
+        // unchanged shapes and handles; never clone or rebuild the whole scene.
+        while self.scenery.len() > brushes.len() {
+            if let Some(h) = self.scenery.pop().unwrap() {
+                self.colliders
+                    .remove(h, &mut self.islands, &mut self.bodies, &mut self.soft, true);
+            }
         }
-        let _profile = crate::frame_profile::scope(12);
-        crate::frame_profile::count(6, 1);
-        for h in self.scenery.drain(..) {
-            self.colliders
-                .remove(h, &mut self.islands, &mut self.bodies, &mut self.soft, true);
-        }
-        self.geometry = brushes.to_vec();
+        self.geometry.truncate(brushes.len());
         for (index, brush) in brushes.iter().enumerate() {
+            if self
+                .geometry
+                .get(index)
+                .is_some_and(|old| same_planes(old, brush))
+            {
+                continue;
+            }
+            if index == self.scenery.len() {
+                self.scenery.push(None);
+                self.geometry.push(Vec::new());
+            }
+            let _profile = crate::frame_profile::scope(12);
+            // A translation reuses the immutable hull. Rotation/topology changes
+            // fall back to rebuilding only this brush, not unrelated scenery.
+            if let Some(delta) = translation_between(&self.geometry[index], brush) {
+                if let Some(h) = self.scenery[index] {
+                    let c = &mut self.colliders[h];
+                    c.set_translation(c.translation() + vector(delta));
+                    self.geometry[index].clone_from(brush);
+                    continue;
+                }
+            }
+            crate::frame_profile::count(6, 1);
+            #[cfg(test)]
+            {
+                self.hull_builds += 1;
+            }
+            self.geometry[index].clone_from(brush);
+            if let Some(h) = self.scenery[index].take() {
+                self.colliders
+                    .remove(h, &mut self.islands, &mut self.bodies, &mut self.soft, true);
+            }
             if let [plane] = brush.as_slice() {
                 {
                     let shape = ColliderBuilder::halfspace(rapier3d::na::Unit::new_unchecked(
                         Vector::new(plane.normal.x, plane.normal.y, plane.normal.z),
                     ));
-                    self.scenery.push(
+                    self.scenery[index] = Some(
                         self.colliders.insert(
                             shape
                                 .user_data((index + 1) as u128)
@@ -87,7 +153,7 @@ impl RigidPhysics {
                 }
             }
             if let Some(shape) = ColliderBuilder::convex_hull(&points) {
-                self.scenery.push(
+                self.scenery[index] = Some(
                     self.colliders
                         .insert(shape.user_data((index + 1) as u128).friction(0.6).build()),
                 );
@@ -127,7 +193,7 @@ impl RigidPhysics {
             let shape = Cuboid::new(e);
             let raised = Pose::from_translation(vector(center + Vec3::Z));
             let mut fraction = 1.;
-            for h in &self.scenery {
+            for h in self.scenery.iter().flatten() {
                 let c = &self.colliders[*h];
                 if let Ok(Some(hit)) = rapier3d::parry::query::cast_shapes(
                     &raised,
@@ -329,6 +395,96 @@ impl RigidPhysics {
 #[cfg(test)]
 mod carry_tests {
     use super::*;
+    fn box_brush(center: Vec3) -> Vec<Plane> {
+        [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y, Vec3::Z, -Vec3::Z]
+            .into_iter()
+            .map(|normal| Plane {
+                normal,
+                distance: normal.dot(center) + 8.,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn animated_brush_sync_preserves_static_colliders() {
+        let mut brushes: Vec<_> = (0..256)
+            .map(|i| box_brush(Vec3::new(i as f32 * 32., 100., 0.)))
+            .collect();
+        brushes.push(box_brush(Vec3::ZERO));
+        let mut physics = RigidPhysics::default();
+        physics.sync_world(&brushes);
+        let static_handle = physics.scenery[0].unwrap();
+        let initial_builds = physics.hull_builds;
+        let mut peak = std::time::Duration::ZERO;
+        let mut total = std::time::Duration::ZERO;
+        for tick in 1..=120 {
+            brushes[256] = box_brush(Vec3::X * tick as f32);
+            let start = std::time::Instant::now();
+            physics.sync_world(&brushes);
+            let elapsed = start.elapsed();
+            peak = peak.max(elapsed);
+            total += elapsed;
+            assert_eq!(physics.colliders.len(), 257);
+        }
+        eprintln!("animated sync: 256 static + 1 moving, 120 ticks, total={total:?} peak={peak:?}");
+        assert!(
+            physics.colliders.get(static_handle).is_some(),
+            "animation invalidated an unchanged scenery handle"
+        );
+        assert_eq!(
+            physics.hull_builds, initial_builds,
+            "translation must reuse cached hulls"
+        );
+        let world = World::from_brushes(brushes);
+        let (fraction, normal) =
+            physics.cast_carry(999, Vec3::ZERO, Vec3::X * 200., Vec3::ONE, &world);
+        assert!(
+            (fraction - 0.55484).abs() < 0.002,
+            "stale moving collider: {fraction}"
+        );
+        assert!(normal.x < -0.99);
+    }
+
+    #[test]
+    fn changed_brush_rebuild_removal_and_reinsertion_are_local() {
+        let mut brushes = vec![box_brush(Vec3::Y * 100.), box_brush(Vec3::X * 100.)];
+        let mut physics = RigidPhysics::default();
+        physics.sync_world(&brushes);
+        let static_handle = physics.scenery[0].unwrap();
+        let rotation = glam::Quat::from_rotation_z(0.4);
+        for plane in &mut brushes[1] {
+            plane.normal = rotation * plane.normal;
+        }
+        physics.sync_world(&brushes);
+        assert_eq!(physics.hull_builds, 3);
+        assert_eq!(physics.scenery[0], Some(static_handle));
+        assert_eq!(physics.colliders.len(), 2);
+        let direction = rotation * Vec3::X;
+        let world = World::from_brushes(brushes.clone());
+        let (fraction, normal) =
+            physics.cast_carry(999, Vec3::ZERO, direction * 200., Vec3::ONE, &world);
+        assert!(fraction > 0.44 && fraction < 0.46, "{fraction}");
+        assert!(normal.dot(-direction) > 0.99, "{normal:?}");
+        // Invalid geometry must remove its old collider, retaining the slot.
+        brushes[1].clear();
+        physics.sync_world(&brushes);
+        assert_eq!(physics.colliders.len(), 1);
+        assert!(physics.scenery[1].is_none());
+        brushes[1] = box_brush(Vec3::X * 150.);
+        physics.sync_world(&brushes);
+        assert_eq!(physics.colliders.len(), 2);
+        brushes.truncate(1);
+        physics.sync_world(&brushes);
+        assert_eq!(physics.colliders.len(), 1);
+        assert_eq!(physics.scenery[0], Some(static_handle));
+        brushes.push(box_brush(Vec3::X * 200.));
+        physics.sync_world(&brushes);
+        assert_eq!(physics.colliders.len(), 2);
+        let builds = physics.hull_builds;
+        physics.sync_world(&brushes);
+        assert_eq!(physics.hull_builds, builds);
+    }
+
     #[test]
     fn carry_cast_uses_scene_and_dynamic_colliders() {
         let world = World::from_brushes(vec![vec![Plane {
