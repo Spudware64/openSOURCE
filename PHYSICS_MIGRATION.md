@@ -61,21 +61,53 @@ also passes; the known blocked-maker failure remains excluded. This does not
 establish input-only original-spawn elevator entry or correct the reported model
 floor alignment.
 
-A direct player-to-Rapier cuboid-cast experiment was rejected and reverted:
-`contact_epsilon` exposed metre-space GJK/TOI normal/clearance errors for large BSP
-convexes at 60/120/240 Hz. No experimental player path is shipped. A robust query
-representation/tolerance solution is still required before replacing that path.
+## Production player character queries
+
+The default Player path now uses Rapier's Parry narrowphase for BSP/rigid
+brush sweeps, ground/step probes, portal rim slices, and posed train floor/side
+queries. There is no opt-in flag or old convex/SAT swept collision fallback.
+Source acceleration, gravity, friction, standing/crouching, step selection,
+portal eligibility/clearance and parent-resolved rider carry remain policy.
+The hull remains an upright 32x32x72 box (crouch uses its existing height).
+
+`player_query.rs` builds configuration-space obstacles using the box support
+function. Plane intersections are calculated in f64, then localized and scaled
+at 0.0254 metres/unit. Parry convex hull construction produces a triangle surface;
+Parry BVH triangle ray queries determine entry TOI, followed by the existing
+0.03125-unit Source skin and authored-normal snapping. Synthetic single planes
+use Parry halfspaces. This is a query-driven kinematic box, not a dynamic capsule
+or Rapier's stock character-controller movement policy. Direct convex GJK casts
+were rejected: even convex ray casts use support-map tolerances and missed tiny
+floor gaps. Triangle-surface ray queries pass the unchanged contact_epsilon cases.
+
+The expanded shapes are cached by planes and hull extents. Separating halfspace
+rejection happens before cache lookup; triangle groups retain swept AABB culling.
+World brush candidate enumeration is still linear (not a scene-wide BVH), and
+moving plane keys can rebuild cached shapes. This is a remaining performance
+limitation, not a claim of broadphase-complete migration. Narrowphase invocation
+counts are exposed as a simulation-thread diagnostic and tested in default Player
+movement. Query colliders reflect current World geometry/body readback; they are
+not additional dynamic solver bodies or velocity-aware kinematic Rapier bodies.
+
+Verification: the unchanged contact_epsilon test passes all 60/120/240 Hz cases;
+portal_height retains actual-floor partial-insertion rim and rejected-crossing
+coverage. Actual-map chamber00 cube/player portal crossing, elevator, support
+boundary/cadence and parented-support tests pass. The integration-wide filtered
+suite exited 0. Its known blocked-maker exclusion remains explicit below.
+No physical-input/native-GPU/Windows acceptance was performed for this change.
 
 ## Still unfinished — do not call this a complete migration
 
 - Held carry remains query-driven, without a dynamic grab joint, held-to-free
   impulse transfer or angular dynamics. Shape casts currently scan the collider
   set; broad-phase acceleration is still future performance work.
-- Player collision/controller still uses the old implementation.
-- Posed model triangles and velocity-aware kinematic elevator colliders have
-  not been imported. Existing transformed BSP world geometry is rebuilt as
-  scenery, not advanced as kinematic bodies. Elevator entry/ride/exit migration
-  and the reported support-height regression are not fixed by this increment.
+- Player movement policy and overlap/portal-clearance predicates remain Source-specific;
+  collision TOI queries now run Parry as described above.
+- Posed train mesh floor/side character queries now use Parry configuration-space
+  geometry, but velocity-aware kinematic elevator solver bodies are still absent.
+  Existing transformed BSP world geometry is scenery, not advanced as kinematic
+  bodies. Existing elevator regression routes pass; original-spawn input-only
+  approach and the reported visual support-height alignment remain unverified.
 - CCD suppression is per-body near approved openings, not per-contact CCD.
   Thin unrelated obstacles at extreme speeds and destination-side collisions
   within the mapped remainder of a substep need additional acceptance tests and

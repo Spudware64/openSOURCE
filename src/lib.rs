@@ -1,4 +1,5 @@
 mod rigid_physics;
+mod player_query;
 pub mod animation;
 mod mesh_collision;
 pub mod portal;

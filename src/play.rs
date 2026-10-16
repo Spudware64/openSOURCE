@@ -69,6 +69,9 @@ pub struct World {
     train_models: std::collections::HashSet<usize>,
 }
 impl World {
+    /// Monotonic Parry narrowphase invocation count on this simulation thread.
+    /// Compare before/after movement; this is diagnostic, not per-World state.
+    pub fn player_narrowphase_queries(&self) -> u64 { crate::player_query::queries() }
     /// Rigid upward triangle support from actual posed MDL geometry. This is not PHY collision.
     pub fn bind_scene(&mut self, scene: &crate::scene::Scene) {
         if self.model_origins.len() < scene.origins.len() {
@@ -500,17 +503,8 @@ impl World {
                     if feet < top - 0.001 {
                         continue;
                     }
-                    let f = ((feet - top - 0.03125) / (start.z - end.z)).max(0.);
-                    if f >= hit.0 {
-                        continue;
-                    }
-                    let point = start.lerp(end, f) + center - origin;
-                    if brush[2..]
-                        .iter()
-                        .all(|p| p.normal.dot(point) - p.distance <= p.normal.abs().dot(extent))
-                    {
-                        hit = (f, Vec3::Z);
-                    }
+                    let h = crate::player_query::cast(brush, start + center - origin, end + center - origin, extent);
+                    if h.0 < hit.0 && h.1.z > 0.7 { hit = h; }
                 }
             }
         }
@@ -671,41 +665,8 @@ impl World {
         let mut fraction = 1.;
         let mut normal = Vec3::ZERO;
         for brush in brushes {
-            let mut enter = -1f32;
-            let mut exit = 1f32;
-            let mut hit = Vec3::ZERO;
-            let mut outside = false;
-            let mut reject = false;
-            for plane in brush {
-                let distance = plane.distance + plane.normal.abs().dot(extent);
-                let a = plane.normal.dot(start + center) - distance;
-                let z = plane.normal.dot(end + center) - distance;
-                if a > 0. {
-                    outside = true;
-                }
-                if a > 0. && z >= a {
-                    reject = true;
-                    break;
-                }
-                if a <= 0. && z <= 0. {
-                    continue;
-                }
-                if a > z {
-                    // Contact-skin entry may precede the sweep. Keep its normal
-                    // and collide at zero instead of discarding an outside hull.
-                    let t = ((a - 0.03125) / (a - z)).max(0.);
-                    if t > enter {
-                        enter = t;
-                        hit = plane.normal;
-                    }
-                } else {
-                    exit = exit.min((a + 0.03125) / (a - z));
-                }
-            }
-            if !reject && outside && enter < exit && enter >= 0. && enter < fraction {
-                fraction = enter;
-                normal = hit;
-            }
+            let h = crate::player_query::cast(brush, start + center, end + center, extent);
+            if h.0 < fraction { fraction = h.0; normal = h.1; }
         }
         (fraction, normal)
     }
