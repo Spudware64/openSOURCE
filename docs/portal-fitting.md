@@ -1,0 +1,11 @@
+# Bounded portal fitting
+
+Player and automatic shots now try the unmodified impact first, then fit the aperture on its connected coplanar eligible BSP world-face patch. Wall up and floor/ceiling firing-heading orientation are unchanged. Candidates come from projections onto inset polygon edges and intersections of those edges, sorted by squared displacement. They move only in the original plane, at most 32 units along portal right and 54 along portal up (the aperture half extents). Already valid shots do not move.
+
+Each candidate's entire enclosing rectangle is checked by convex polygon subtraction against the eligible patch union; non-tool forbidden overlapping faces veto placement. Numerical polygon slivers below 0.001 doubled-area units are discarded. No nearest-other-wall search or retry beyond a nonportalable first hit occurs. Existing player world brush visibility, paired-portal rejection and ownership checks still run; replacing one's own channel does not overlap itself.
+
+This is a conservative rectangular approximation, **not recovered Valve oval fitting parity**. At most 128 patch edges, 4096 candidates and 256 uncovered fragments are considered; complex patches can reject a possible fit. Paired portals are rejected rather than used as another bump constraint. Candidate enumeration across nonconvex polygon unions is bounded and not a proof of globally closest placement. Existing material eligibility remains limited to the supported modular concrete subset. Dynamic geometry continues to use existing shot visibility checks, not a new full-aperture dynamic-solid test.
+
+A read-only entity-lump inventory of all 26 available original map BSPs found neither `info_placement_helper` nor `point_placement_helper`; no speculative helper-entity semantics were added. No original DLL was executed or modified.
+
+Regression coverage: wall/floor/ceiling edges and two-axis corners, disconnected/undersized panels, nearest forbidden occluders, narrow forbidden islands, coplanar seams, and original chamber 00 player-shot fitting with self-replacement and paired-channel rejection. The primary edge regression was observed failing before the implementation.

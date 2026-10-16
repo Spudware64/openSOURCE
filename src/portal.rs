@@ -349,25 +349,190 @@ impl Surfaces {
                 Vec3::Z
             },
         );
-        // Validate a complete enclosing rectangle over the union of coplanar eligible world polygons.
-        // This is deliberately stricter than Source's oval bump/fitting algorithm.
-        for x in -8..=8 {
-            for y in -14..=14 {
-                let p = center
-                    + portal.right() * (x as f32 * 4.)
-                    + portal.up * (y as f32 * HALF_HEIGHT / 14.);
-                if !self.faces.iter().any(|s| {
-                    s.allowed
-                        && s.normal.dot(portal.normal) > 0.9999
-                        && s.normal.dot(p - s.points[0]).abs() < 0.05
-                        && s.contains(p)
+        self.fit_on_patch(portal, face)
+    }
+
+    /// Bounded rectangular approximation of Source bumping, not Valve's oval solver.
+    /// Never changes the hit plane, roll, or material selected by the original ray.
+    fn fit_on_patch(&self, portal: Portal, hit: &Surface) -> Result<Portal, String> {
+        let coplanar = |s: &&Surface| {
+            s.normal.dot(portal.normal) > 0.9999
+                && s.normal.dot(portal.center - s.points[0]).abs() < 0.05
+        };
+        let nearby: Vec<_> = self.faces.iter().filter(coplanar).collect();
+        // Only the connected eligible patch containing the actual impact may fit.
+        let mut patch = vec![hit];
+        loop {
+            let old = patch.len();
+            for s in nearby.iter().copied().filter(|s| s.allowed) {
+                if patch.iter().any(|p| std::ptr::eq(*p, s)) {
+                    continue;
+                }
+                if patch.iter().any(|p| {
+                    s.points.iter().any(|v| p.contains(*v))
+                        || p.points.iter().any(|v| s.contains(*v))
                 }) {
-                    return Err("portal footprint crosses edge or forbidden surface".into());
+                    patch.push(s);
+                }
+            }
+            if patch.len() == old {
+                break;
+            }
+        }
+        let valid = |p: Portal| {
+            let rectangle = vec![
+                p.center - p.right() * HALF_WIDTH - p.up * HALF_HEIGHT,
+                p.center + p.right() * HALF_WIDTH - p.up * HALF_HEIGHT,
+                p.center + p.right() * HALF_WIDTH + p.up * HALF_HEIGHT,
+                p.center - p.right() * HALF_WIDTH + p.up * HALF_HEIGHT,
+            ];
+            // Polygon subtraction checks the entire rectangle, including sub-sample gaps.
+            let mut uncovered = vec![rectangle.clone()];
+            for s in &patch {
+                uncovered = uncovered
+                    .into_iter()
+                    .flat_map(|poly| subtract_face(poly, s))
+                    .collect();
+                if uncovered.is_empty() {
+                    break;
+                }
+                if uncovered.len() > 256 {
+                    return false;
+                }
+            }
+            uncovered.is_empty()
+                && !nearby.iter().any(|s| {
+                    !s.allowed
+                        && !s.material.starts_with("tools/")
+                        && polygon_face_overlap(rectangle.clone(), s)
+                })
+        };
+        if valid(portal) {
+            return Ok(portal);
+        }
+        // The nearest point of a convex feasible region is a projection onto an
+        // inset edge or an intersection of two inset edges. Include both; union
+        // seams may produce redundant candidates, rejected by full validation.
+        let mut lines = Vec::new();
+        for s in &patch {
+            let centroid = s.points.iter().copied().sum::<Vec3>() / s.points.len() as f32;
+            for i in 0..s.points.len() {
+                let a = s.points[i];
+                let edge = s.points[(i + 1) % s.points.len()] - a;
+                let mut n = portal.normal.cross(edge).normalize_or_zero();
+                if n.dot(centroid - a) < 0. {
+                    n = -n;
+                }
+                let axis = glam::Vec2::new(n.dot(portal.right()), n.dot(portal.up));
+                let distance = n.dot(a - portal.center)
+                    + axis.x.abs() * HALF_WIDTH
+                    + axis.y.abs() * HALF_HEIGHT;
+                if axis.length_squared() > 0.5 {
+                    lines.push((axis, distance));
                 }
             }
         }
-        Ok(portal)
+        lines.truncate(128);
+        let mut candidates = Vec::new();
+        for (i, &(a, b)) in lines.iter().enumerate() {
+            candidates.push(a * b);
+            for &(c, d) in &lines[..i] {
+                let det = a.perp_dot(c);
+                if det.abs() > 1e-5 {
+                    candidates.push(glam::Vec2::new(b * c.y - a.y * d, a.x * d - b * c.x) / det);
+                }
+            }
+        }
+        candidates.retain(|d| {
+            d.is_finite() && d.x.abs() <= HALF_WIDTH + 0.01 && d.y.abs() <= HALF_HEIGHT + 0.01
+        });
+        candidates.sort_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
+        candidates.dedup_by(|a, b| a.distance_squared(*b) < 1e-6);
+        for delta in candidates.into_iter().take(4096) {
+            let p = Portal {
+                center: portal.center + portal.right() * delta.x + portal.up * delta.y,
+                ..portal
+            };
+            if valid(p) {
+                return Ok(p);
+            }
+        }
+        Err("portal footprint crosses edge or forbidden surface".into())
     }
+}
+
+// Split a convex polygon at a face edge; discard numerical zero-area slivers.
+fn split_polygon(poly: Vec<Vec3>, a: Vec3, n: Vec3) -> (Vec<Vec3>, Vec<Vec3>) {
+    let mut inside = Vec::new();
+    let mut outside = Vec::new();
+    for i in 0..poly.len() {
+        let p = poly[i];
+        let q = poly[(i + 1) % poly.len()];
+        let d = n.dot(p - a);
+        let e = n.dot(q - a);
+        if d >= 0. {
+            inside.push(p);
+        } else {
+            outside.push(p);
+        }
+        if (d < 0.) != (e < 0.) {
+            let v = p + (q - p) * (d / (d - e));
+            inside.push(v);
+            outside.push(v);
+        }
+    }
+    for polygon in [&mut inside, &mut outside] {
+        let area = if polygon.len() < 3 {
+            0.
+        } else {
+            (1..polygon.len() - 1)
+                .map(|i| {
+                    (polygon[i] - polygon[0])
+                        .cross(polygon[i + 1] - polygon[0])
+                        .length()
+                })
+                .sum::<f32>()
+        };
+        if area < 0.001 {
+            polygon.clear();
+        }
+    }
+    (inside, outside)
+}
+fn face_inward(s: &Surface, i: usize) -> Vec3 {
+    let centroid = s.points.iter().copied().sum::<Vec3>() / s.points.len() as f32;
+    let a = s.points[i];
+    let mut n = s
+        .normal
+        .cross(s.points[(i + 1) % s.points.len()] - a)
+        .normalize_or_zero();
+    if n.dot(centroid - a) < 0. {
+        n = -n;
+    }
+    n
+}
+fn subtract_face(mut poly: Vec<Vec3>, s: &Surface) -> Vec<Vec<Vec3>> {
+    let mut remainder = Vec::new();
+    for i in 0..s.points.len() {
+        let (inside, outside) = split_polygon(poly, s.points[i], face_inward(s, i));
+        if !outside.is_empty() {
+            remainder.push(outside);
+        }
+        poly = inside;
+        if poly.is_empty() {
+            break;
+        }
+    }
+    remainder
+}
+fn polygon_face_overlap(mut poly: Vec<Vec3>, s: &Surface) -> bool {
+    for i in 0..s.points.len() {
+        poly = split_polygon(poly, s.points[i], face_inward(s, i)).0;
+        if poly.is_empty() {
+            return false;
+        }
+    }
+    true
 }
 
 use glam::{Mat3, Vec3};
