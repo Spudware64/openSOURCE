@@ -19,6 +19,9 @@ pub struct PreparedMap {
     pub surfaces: Option<crate::portal::Surfaces>,
 }
 impl GameRoot {
+    pub fn audio(&self, bytes: &[u8]) -> Result<crate::audio::Audio,String> {
+        Ok(crate::audio::Audio::start(Assets::from_game(&self.game,Some(bytes))?))
+    }
     pub fn weapon_viewmodel(&self) -> Result<Scene, String> {
         Scene::weapon_viewmodel(&Assets::from_game(&self.game, None)?, "weapon_portalgun")
     }

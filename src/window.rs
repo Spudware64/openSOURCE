@@ -35,9 +35,12 @@ fn interactive_impl(
     mut surfaces: Option<crate::portal::Surfaces>,
     root: Option<crate::session::GameRoot>,
 ) -> Result<(), String> {
+    let audio = root.as_ref().map(|r|r.audio(bytes)).transpose()?;
     let mut controller_trace = crate::controller_trace::open()?;
     let trace_exe = if controller_trace.is_some() { std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() } else { String::new() };
     let mut trace_map = if controller_trace.is_some() { let args: Vec<_> = std::env::args().collect(); args.windows(2).find(|a| a[0] == "--map").map(|a| a[1].clone()).or_else(|| args.get(2).cloned()).unwrap_or_default() } else { String::new() };
+    let mut movement_audio=crate::audio::MovementAudio::default();
+    let mut audio_time=0.;
     let mut trace_tick = 0u64;
     let mut world = World::parse(bytes)?;
     let mut runtime = crate::entity::Runtime::new(bytes)?;
@@ -319,6 +322,8 @@ fn interactive_impl(
                     } if button==MouseButton::Left || button==MouseButton::Right => {
                         if controls.captured {
                             let eye=player.position+Vec3::Z*player.eye_height();
+                            let channel=usize::from(button==MouseButton::Right);
+                            if runtime.portal_inventory[channel] {if let Some(audio)=&audio {audio.play(crate::audio::Event::one(audio_time,if channel==0 {"Weapon_Portalgun.fire_blue"} else {"Weapon_Portalgun.fire_red"},None));}}
                             if let Err(error)=portal_game.fire_player_with_facing(usize::from(button==MouseButton::Right),eye,player.forward(),Vec3::new(player.yaw.cos(),player.yaw.sin(),0.),&runtime,&mut world){println!("portal placement rejected: {error}");}
                             return;
                         }
@@ -352,7 +357,7 @@ fn interactive_impl(
                                             if controls.captured {
                                                 println!(
                                                     "use {}",
-                                                    runtime.use_player(&player, &world)
+                                                    {let used=runtime.use_player(&player, &world); if let Some(audio)=&audio {audio.play(crate::audio::Event::one(audio_time,if used {"HL2Player.Use"} else {"HL2Player.UseDeny"},None));} used}
                                                 );
                                             }
                                         }
@@ -544,6 +549,8 @@ fn interactive_impl(
                                 portal_game.sync_runtime(&mut runtime,&mut world);
                                 let trace_runtime_position = player.position;
                                 player.step(&world, input, down(KeyCode::Space) > 0., 1. / 120.);
+                                audio_time=runtime.sound_time();
+                                if let Some(audio)=&audio {for event in movement_audio.step(&player,audio_time){audio.play(event);}}
                                 accumulator -= 1. / 120.;
                                 crate::controller_trace::record(&mut controller_trace, || {
                                     use crate::controller_trace::csv;
@@ -563,6 +570,10 @@ fn interactive_impl(
                                 });
                             }
                         }
+                        if let Some(audio)=&audio {
+                            audio.listener(player.position+Vec3::Z*player.eye_height(),Vec3::new(player.yaw.sin(),-player.yaw.cos(),0.));
+                            for event in runtime.sound_events.drain(..) {audio.play(event);}
+                        }
                         portal_game.sync_runtime(&mut runtime, &mut world);
                         if let Some(request) = runtime.change_level.take() {
                             println!("ChangeLevel detected: {} landmark {} player {:?}",request.map,request.landmark,player.position);
@@ -570,6 +581,8 @@ fn interactive_impl(
                             match prepared {
                                 Ok(mut next) => {
                                     for warning in &next.scene.warnings {eprintln!("ChangeLevel asset warning: {warning}");}
+                                    if let Some(audio)=&audio {let mut event=crate::audio::Event::one(audio_time,"",None);event.stop=true;audio.play(event);}
+                                    movement_audio=crate::audio::MovementAudio::default();
                                     next.runtime.enter_transition(&runtime,next.player.position-player.position);
                                     next.world.update_models(&next.runtime.origins,&next.runtime.visible);
                                     let gpu=match crate::scene_gpu::GpuScene::new(&device,&queue,&next.scene,config.format) {

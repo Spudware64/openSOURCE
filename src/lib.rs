@@ -1,6 +1,7 @@
 mod rigid_physics;
 mod player_query;
 pub mod animation;
+pub mod audio;
 mod mesh_collision;
 pub mod portal;
 pub mod session;

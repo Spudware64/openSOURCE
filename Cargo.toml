@@ -13,6 +13,7 @@ winit = "0.29"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 rayon = "1.10"
 rapier3d = "0.36.1"
+rodio = { version = "0.20.1", default-features = false, features = ["symphonia-wav", "symphonia-mp3"] }
 
 [profile.dev]
 # Keep real debug builds (symbols and assertions), but optimize simulation math.

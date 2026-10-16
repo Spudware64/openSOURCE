@@ -57,6 +57,7 @@ impl Game {
         world: &mut crate::play::World,
     ) {
         for (index, eye, direction) in std::mem::take(&mut runtime.portal_shots) {
+            runtime.sound_events.push(crate::audio::Event::one(runtime.sound_time(),if index==0 {"Weapon_Portalgun.fire_blue_npc"} else {"Weapon_Portalgun.fire_red_npc"},Some(eye)));
             if let Some(surfaces) = &self.automatic_surfaces {
                 match surfaces.place(eye, direction) {
                     Ok(portal) => {

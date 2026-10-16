@@ -87,6 +87,8 @@ impl ChangeLevel {
     }
 }
 pub struct Runtime {
+    pub sound_events: Vec<crate::audio::Event>,
+    audio_started: bool,
     physics: crate::rigid_physics::RigidPhysics,
     scene_times: HashMap<usize, (f32, Option<f32>)>,
     pub portal_inventory: [bool; 2],
@@ -109,6 +111,7 @@ pub struct Runtime {
 impl Runtime {
     /// Actual Rapier collider pose for a runtime model (not the legacy world view).
     /// Held props are query-driven and enter the body set when released.
+    pub fn sound_time(&self)->f32 {self.time}
     pub fn rapier_collider_center(&self, model: usize) -> Option<Vec3> {
         let id = self.states.iter().position(|s| !s.killed && s.model == Some(model))?;
         self.physics.collider_center(id)
@@ -199,6 +202,8 @@ impl Runtime {
         }
         let mut r = Self {
             physics: Default::default(),
+            sound_events: vec![],
+            audio_started: false,
             scene_times: HashMap::new(),
             portal_inventory: [false; 2],
             portal_shots: vec![],
@@ -687,6 +692,17 @@ impl Runtime {
             .get("classname")
             .unwrap_or("")
             .to_owned();
+        if input.eq_ignore_ascii_case("EmitSound") || (class == "ambient_generic" && ["playsound","stopsound"].iter().any(|s|input.eq_ignore_ascii_case(s))) {
+            let e = &self.states[id].entity;
+            let name = if input.eq_ignore_ascii_case("EmitSound") {parameter} else {e.get("message").unwrap_or("")};
+            let flags = e.get("spawnflags").and_then(|v|v.parse::<u32>().ok()).unwrap_or(0);
+            let mut event=crate::audio::Event::one(self.time,name,if flags&1!=0 {None} else {Some(self.transform(id).w_axis.truncate())});
+            event.owner=Some(id); event.stop=input.eq_ignore_ascii_case("StopSound");
+            event.looping=class=="ambient_generic" && flags&32==0;
+            event.volume=e.get("health").and_then(|v|v.parse::<f32>().ok()).unwrap_or(10.).clamp(0.,10.)/10.;
+            if self.sound_events.len()<256 {self.sound_events.push(event);}
+            return;
+        }
         match input.to_ascii_lowercase().as_str() {
             "invalue" if class == "logic_case" => {
                 let matched = (1..=16).find(|n| {
@@ -981,6 +997,8 @@ impl Runtime {
                 motion.close_at = None;
                 let button = motion.button;
                 if changed {
+                    let name=self.states[id].entity.get("noise1").or_else(||self.states[id].entity.get("movesnd")).unwrap_or("").to_owned();
+                    if !name.is_empty() && name.parse::<u32>().is_err() {self.sound_events.push(crate::audio::Event::one(self.time,name,Some(self.transform(id).w_axis.truncate())));}
                     self.fire(
                         id,
                         if button {
@@ -1012,6 +1030,7 @@ impl Runtime {
         };
         self.carry_portal = None;
         self.states[id].velocity = Some(player.velocity + player.forward() * 400.);
+        self.sound_events.push(crate::audio::Event::one(self.time,"Weapon_PhysCannon.Drop",None));
         self.fire(id, "OnPhysGunDrop");
         true
     }
@@ -1038,7 +1057,8 @@ impl Runtime {
         if let Some(id) = self.held.take() {
             self.carry_portal = None;
             self.states[id].velocity = Some(player.velocity);
-            self.fire(id, "OnPhysGunDrop");
+            self.sound_events.push(crate::audio::Event::one(self.time,"Weapon_PhysCannon.Drop",None));
+        self.fire(id, "OnPhysGunDrop");
             return true;
         }
         let eye = player.position + Vec3::Z * player.eye_height();
@@ -1084,6 +1104,7 @@ impl Runtime {
             if self.states[id].velocity.is_some() {
                 self.held = Some(id);
                 self.carry_portal = None;
+                self.sound_events.push(crate::audio::Event::one(self.time,"Weapon_PhysCannon.Pickup",None));
                 self.fire(id, "OnPlayerPickup");
                 return true;
             }
@@ -1127,6 +1148,14 @@ impl Runtime {
             return;
         }
         self.time += dt;
+        if !self.audio_started {
+            self.audio_started=true;
+            for id in 0..self.states.len() {
+                let e=&self.states[id].entity;
+                let flags=e.get("spawnflags").and_then(|v|v.parse::<u32>().ok()).unwrap_or(0);
+                if e.get("classname")==Some("ambient_generic") && flags&16==0 && flags&32==0 {self.apply(id,"PlaySound","",world);}
+            }
+        }
         // Stable entity order, one scheduled think per simulation step; no wall clock.
         for id in 0..self.states.len() {
             if self.states[id].killed || !self.states[id].enabled {
