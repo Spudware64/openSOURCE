@@ -1,5 +1,10 @@
 use glam::Vec3;
 use winit::keyboard::KeyCode;
+// Source SDK public/bspflags.h. Portal shots deliberately pass through grates;
+// player hulls and solid objects do not. Keep contents until query selection.
+const MASK_PLAYERSOLID: i32 = 1 | 2 | 8 | 0x4000 | 0x10000 | 0x2000000;
+const MASK_SHOT_PORTAL: i32 = 1 | 2 | 0x4000 | 0x2000000;
+const MASK_SOLID: i32 = 1 | 2 | 8 | 0x4000 | 0x2000000;
 /// Render-only one-tick interpolation. Never feeds a visual position into physics.
 #[derive(Default)]
 pub struct RenderPosition {
@@ -57,6 +62,8 @@ pub struct Plane {
 pub struct World {
     pub portals: [Option<crate::portal::Portal>; 2],
     pub brushes: Vec<Vec<Plane>>,
+    brush_contents: Vec<i32>,
+    model_contents: Vec<Vec<i32>>,
     pub(crate) rigid: Vec<Vec<Plane>>,
     pub(crate) rigid_ids: Vec<usize>,
     pub spawn: Vec3,
@@ -165,6 +172,8 @@ impl World {
             mesh_sides: vec![vec![]],
             train_models: Default::default(),
             model_brushes: vec![brushes.clone()],
+            model_contents: vec![vec![1; brushes.len()]],
+            brush_contents: vec![1; brushes.len()],
             model_origins: vec![Vec3::ZERO],
             model_solid: vec![true],
             brushes,
@@ -212,6 +221,7 @@ impl World {
         }
         let sides = crate::lump(b, 19, 8)?;
         let mut brushes = vec![];
+        let mut contents = vec![];
         for a in crate::lump(b, 18, 12)?.chunks_exact(12) {
             let start = i(a, 0);
             let count = i(a, 4);
@@ -223,7 +233,8 @@ impl World {
                 let n = u16::from_le_bytes(s[..2].try_into().unwrap()) as usize;
                 brush.push(*planes.get(n).ok_or("brush plane range")?);
             }
-            if i(a, 8) & (1 | 2 | 65536) == 0 {
+            contents.push(i(a, 8));
+            if i(a, 8) & MASK_PLAYERSOLID == 0 {
                 brush.clear();
             }
             brushes.push(brush);
@@ -245,6 +256,9 @@ impl World {
             })
             .collect::<Vec<_>>();
         let entities = crate::entity::parse_entities(crate::lump(b, 0, 1)?)?;
+        let mut model_contents: Vec<Vec<i32>> = indices.iter().map(|ids| {
+            ids.iter().filter(|&&id| !brushes[id].is_empty()).map(|&id| contents[id]).collect()
+        }).collect();
         let player = entities
             .iter()
             .find(|e| e.get("classname") == Some("info_player_start"))
@@ -283,6 +297,7 @@ impl World {
                         != 0;
                 if passable {
                     model_brushes[model].clear();
+                    model_contents[model].clear();
                 }
                 solid[model] = !(passable
                     || class.starts_with("trigger_")
@@ -309,6 +324,8 @@ impl World {
             rigid: vec![],
             rigid_ids: vec![],
             brushes: vec![],
+            brush_contents: vec![],
+            model_contents,
             spawn,
             yaw,
             floor_support: vec![vec![]; model_brushes.len()],
@@ -334,6 +351,7 @@ impl World {
         crate::frame_profile::count(5, 1);
         self.model_origins = origins.to_vec();
         self.brushes.clear();
+        self.brush_contents.clear();
         for (model, brushes) in self.model_brushes.iter().enumerate() {
             if !self.model_solid[model] || !enabled.get(model).copied().unwrap_or(false) {
                 continue;
@@ -343,7 +361,10 @@ impl World {
                 .get(model)
                 .copied()
                 .unwrap_or(glam::Mat3::IDENTITY);
-            for brush in brushes {
+            for (index, brush) in brushes.iter().enumerate() {
+                // Public synthetic geometry defaults to CONTENTS_SOLID.
+                let contents = self.model_contents.get(model).and_then(|v| v.get(index)).copied().unwrap_or(1);
+                self.brush_contents.push(contents);
                 self.brushes.push(
                     brush
                         .iter()
@@ -367,13 +388,14 @@ impl World {
             Vec3::new(16., 16., height * 0.5),
             true,
             None,
+            MASK_PLAYERSOLID,
         )
     }
     pub fn trace_point(&self, start: Vec3, end: Vec3) -> (f32, Vec3) {
-        self.trace_hull(start, end, Vec3::ZERO, Vec3::ZERO, true, None)
+        self.trace_hull(start, end, Vec3::ZERO, Vec3::ZERO, true, None, MASK_SHOT_PORTAL)
     }
     pub(crate) fn trace_use(&self, start: Vec3, end: Vec3, target: usize) -> (f32, Vec3) {
-        self.trace_hull(start, end, Vec3::ZERO, Vec3::ZERO, true, Some(target))
+        self.trace_hull(start, end, Vec3::ZERO, Vec3::ZERO, true, Some(target), MASK_SOLID)
     }
     pub fn overlaps_cuboid(&self, center: Vec3, extent: Vec3) -> bool {
         self.brushes
@@ -406,7 +428,7 @@ impl World {
             })
     }
     pub fn trace_cuboid(&self, start: Vec3, end: Vec3, extent: Vec3) -> (f32, Vec3) {
-        self.trace_hull(start, end, Vec3::ZERO, extent, false, None)
+        self.trace_hull(start, end, Vec3::ZERO, extent, false, None, MASK_SOLID)
     }
     fn trace_hull(
         &self,
@@ -416,9 +438,13 @@ impl World {
         extent: Vec3,
         rigid: bool,
         ignore: Option<usize>,
+        mask: i32,
     ) -> (f32, Vec3) {
         let mut hit = (1., Vec3::ZERO);
         for (index, brush) in self.brushes.iter().enumerate() {
+            if self.brush_contents.get(index).copied().unwrap_or(1) & mask == 0 {
+                continue;
+            }
             // Cutting out the backing brush must retain its aperture rim. A
             // hull already inserted into the brush has no convex entry face,
             // so restoring the whole brush after a failed fit loses collision.
