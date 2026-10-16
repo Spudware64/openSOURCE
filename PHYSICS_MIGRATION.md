@@ -22,6 +22,14 @@ its independent swept-body integration have been removed.
   actual-map blocker was an authored cube pose about 0.19 units inside the floor:
   destination clearance stayed rejected until the wall solver had removed the
   throw momentum. Recovering the floor overlap before solving fixes that case.
+- Held-object movement now casts a Parry cuboid against the production Rapier
+  collider set (imported BSP convex/halfspace shapes and free-body colliders),
+  replacing the old handwritten world/prop sweep. Existing sliding, portal
+  ownership and player-crossing mapping remain; this is query-driven carry,
+  not a simulated grab joint or held-body impulse transfer. Aperture exclusion
+  requires the shared fit/exit predicate and a backing-plane hit normal.
+- Runtime::rapier_collider_center exposes actual collider pose readback; the
+  authored held/player-crossing/drop test now checks that pose after release.
 - Runtime readback still publishes the existing collider view for gameplay.
 
 ## Verification
@@ -29,7 +37,9 @@ its independent swept-body integration have been removed.
 `cargo test --quiet --test rapier_runtime --test chamber00_cube_portal
 --test cube_portal_regression --test rigid --
 --skip blocked_maker_does_not_embed_or_fire_spawn_output`:
-24 passed, one known baseline failure excluded.
+25 passed, one known baseline failure excluded. The carry shape-cast unit test
+also passes (world and dynamic-body blocking); the runtime wall hold regression
+checks 240 ticks followed by actual Rapier collider readback after dropping.
 
 The integration-wide run `cargo test --quiet --
 --skip blocked_maker_does_not_embed_or_fire_spawn_output` also exited 0 with no
@@ -42,7 +52,9 @@ ordinary-wall rejection in a linked scene, and blocked-destination rejection.
 
 ## Still unfinished — do not call this a complete migration
 
-- Held-object collision/carry constraints still use the old swept adapter.
+- Held carry remains query-driven, without a dynamic grab joint, held-to-free
+  impulse transfer or angular dynamics. Shape casts currently scan the collider
+  set; broad-phase acceleration is still future performance work.
 - Player collision/controller still uses the old implementation.
 - Posed model triangles and velocity-aware kinematic elevator colliders have
   not been imported. Existing transformed BSP world geometry is rebuilt as

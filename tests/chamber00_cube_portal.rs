@@ -141,6 +141,14 @@ fn actual_chamber00_held_cube_persists_across_authored_pair() {
     }
     assert!(r.use_player(&p, &w), "drop held cube");
     r.tick(1. / 120., &mut p, &mut w);
+    let collider_center = r
+        .rapier_collider_center(cube)
+        .expect("drop must create an actual Rapier collider");
+    assert!(
+        collider_center.distance(r.origins[cube]) < 0.01,
+        "actual collider {collider_center:?} must follow destination model {:?}",
+        r.origins[cube]
+    );
     assert!(
         w.overlaps_cuboid(r.origins[cube] + Vec3::Z * 16., Vec3::splat(1.)),
         "dropped collider must follow destination model"

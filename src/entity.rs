@@ -107,6 +107,13 @@ pub struct Runtime {
     names: HashMap<String, Vec<usize>>,
 }
 impl Runtime {
+    /// Actual Rapier collider pose for a runtime model (not the legacy world view).
+    /// Held props are query-driven and enter the body set when released.
+    pub fn rapier_collider_center(&self, model: usize) -> Option<Vec3> {
+        let id = self.states.iter().position(|s| !s.killed && s.model == Some(model))?;
+        self.physics.collider_center(id)
+    }
+
     pub fn bind_animations(&mut self, scene: &crate::scene::Scene) {
         self.bind_scene_timing(&scene.scene_durations);
         let mut bounds =
@@ -1156,54 +1163,8 @@ impl Runtime {
                 s.velocity = Some(velocity);
             }
         }
-        let colliders = self
-            .states
-            .iter()
-            .enumerate()
-            .filter_map(|(id, s)| {
-                let m = s.model?;
-                if s.killed || s.velocity.is_none() || self.held == Some(id) {
-                    return None;
-                }
-                let lo = self.origins[m] + s.bounds.0;
-                let hi = self.origins[m] + s.bounds.1;
-                let planes = (0..3)
-                    .flat_map(|a| {
-                        let mut normal = Vec3::ZERO;
-                        normal[a] = 1.;
-                        [
-                            crate::play::Plane {
-                                normal,
-                                distance: hi[a],
-                            },
-                            crate::play::Plane {
-                                normal: -normal,
-                                distance: -lo[a],
-                            },
-                        ]
-                    })
-                    .collect::<Vec<_>>();
-                Some((id, planes))
-            })
-            .collect::<Vec<_>>();
         let trace = |id, start, end, extent| {
-            let mut hit = world.trace_body(id, start, end, extent);
-            for (other, brush) in &colliders {
-                if *other == id {
-                    continue;
-                }
-                let h = World::trace_brushes(
-                    std::slice::from_ref(brush),
-                    start,
-                    end,
-                    Vec3::ZERO,
-                    extent,
-                );
-                if h.0 < hit.0 {
-                    hit = h;
-                }
-            }
-            hit
+            self.physics.cast_carry(id, start, end, extent, world)
         };
         for (id, s) in self.states.iter_mut().enumerate() {
             if s.killed {

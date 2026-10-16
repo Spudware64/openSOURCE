@@ -254,9 +254,95 @@ impl RigidPhysics {
             self.accumulator -= parameters.dt;
         }
     }
+    /// Sweep the held cuboid against the same Rapier shapes as free bodies.
+    /// Keep aperture eligibility shared with contact hooks, but never discard
+    /// a non-backing-plane normal merely because its brush hosts a portal.
+    pub fn cast_carry(
+        &self,
+        id: usize,
+        start: Vec3,
+        end: Vec3,
+        extent: Vec3,
+        world: &World,
+    ) -> (f32, Vec3) {
+        let shape = Cuboid::new(vector(extent));
+        let pose = Pose::from_translation(vector(start));
+        let movement = vector(end - start);
+        let mut result = (1., Vec3::ZERO);
+        for (_, collider) in self.colliders.iter() {
+            if collider
+                .parent()
+                .is_some_and(|h| self.bodies[h].user_data == (id + 1) as u128)
+            {
+                continue;
+            }
+            let Ok(Some(hit)) = rapier3d::parry::query::cast_shapes(
+                &pose,
+                movement,
+                &shape,
+                collider.position(),
+                Vector::ZERO,
+                collider.shape(),
+                rapier3d::parry::query::ShapeCastOptions {
+                    max_time_of_impact: result.0,
+                    target_distance: 0.03125 * SCALE,
+                    stop_at_penetration: false,
+                    ..Default::default()
+                },
+            ) else {
+                continue;
+            };
+            let n = Vec3::new(hit.normal2.x, hit.normal2.y, hit.normal2.z);
+            let brush = (collider.parent().is_none() && collider.user_data > 0)
+                .then(|| world.brushes.get(collider.user_data as usize - 1))
+                .flatten();
+            if brush.is_some_and(|brush| world.aperture_except(brush, start, end, extent, Some(id)))
+                && world
+                    .portals
+                    .iter()
+                    .flatten()
+                    .any(|p| n.dot(p.normal).abs() > 0.999)
+            {
+                continue;
+            }
+            if hit.time_of_impact < result.0 {
+                result = (hit.time_of_impact, n);
+            }
+        }
+        result
+    }
+
+    pub fn collider_center(&self, id: usize) -> Option<Vec3> {
+        let body = self.bodies.get(*self.handles.get(&id)?)?;
+        let collider = self.colliders.get(*body.colliders().first()?)?;
+        Some(source(collider.translation()))
+    }
+
     pub fn state(&self, id: usize) -> (Vec3, Vec3) {
         let b = &self.bodies[self.handles[&id]];
         (source(b.translation()), source(b.linvel()))
+    }
+}
+
+#[cfg(test)]
+mod carry_tests {
+    use super::*;
+    #[test]
+    fn carry_cast_uses_scene_and_dynamic_colliders() {
+        let world = World::from_brushes(vec![vec![Plane {
+            normal: -Vec3::X,
+            distance: -100.,
+        }]]);
+        let mut physics = RigidPhysics::default();
+        physics.sync_world(&world.brushes);
+        let (fraction, normal) =
+            physics.cast_carry(0, Vec3::ZERO, Vec3::X * 200., Vec3::splat(16.), &world);
+        assert!((fraction - 0.41984).abs() < 0.001, "{fraction}");
+        assert!(normal.x < -0.99);
+        physics.sync_body(1, Vec3::X * 60., Vec3::splat(16.), Vec3::ZERO);
+        let (fraction, _) =
+            physics.cast_carry(0, Vec3::ZERO, Vec3::X * 200., Vec3::splat(16.), &world);
+        assert!(fraction < 0.15, "dynamic body must block carry: {fraction}");
     }
 }
 

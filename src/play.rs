@@ -382,15 +382,6 @@ impl World {
                     })
             })
     }
-    pub(crate) fn trace_body(
-        &self,
-        id: usize,
-        start: Vec3,
-        end: Vec3,
-        extent: Vec3,
-    ) -> (f32, Vec3) {
-        self.trace_hull(start, end, Vec3::ZERO, extent, false, Some(id))
-    }
     pub(crate) fn body_overlap(&self, id: usize, center: Vec3, extent: Vec3) -> bool {
         self.brushes
             .iter()
