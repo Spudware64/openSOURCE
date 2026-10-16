@@ -603,6 +603,15 @@ impl Runtime {
     /// Parent-rendered models follow the transferred carrier through their authored offsets.
     pub fn enter_transition(&mut self, previous: &Runtime, offset: Vec3) {
         self.portal_inventory = previous.portal_inventory;
+        // Spawn-loadout copies are redundant only when every channel they offer
+        // is already carried. Preserve pedestal upgrades and their puzzle I/O.
+        let redundant: Vec<_> = self.states.iter().enumerate().filter(|(_,s)|
+            !s.killed && s.enabled && s.entity.get("classname")==Some("weapon_portalgun")
+            && s.entity.get("parentname").is_none()
+            && !s.entity.pairs.iter().any(|(k,_)|k.eq_ignore_ascii_case("OnPlayerPickup"))
+            && (0..2).all(|i|s.entity.get(if i==0 {"CanFirePortal1"} else {"CanFirePortal2"})==Some("0") || self.portal_inventory[i])
+        ).map(|(id,_)|id).collect();
+        for id in redundant {self.states[id].killed=true;self.states[id].enabled=false;if let Some(m)=self.states[id].model {self.visible[m]=false;}}
         self.queue
             .retain(|p| !p.event.eq_ignore_ascii_case("OnNewGame"));
         for id in 0..self.states.len() {
@@ -1122,7 +1131,7 @@ impl Runtime {
     /// consume only the explicitly named later-chamber spawn-loadout weapon.
     /// Normal transitions and chamber01's acquisition puzzle do not call this.
     pub fn direct_launch_loadout(&mut self) {
-        let ids: Vec<_> = self.states.iter().enumerate().filter(|(_,s)| !s.killed && s.enabled && s.entity.get("classname") == Some("weapon_portalgun") && s.entity.get("targetname").is_some_and(|n| n.starts_with("portalgun_spawn_lvl")) && s.entity.get("parentname").is_none()).map(|(id,_)|id).collect();
+        let ids: Vec<_> = self.states.iter().enumerate().filter(|(_,s)| !s.killed && s.enabled && s.entity.get("classname") == Some("weapon_portalgun") && s.entity.get("parentname").is_none() && s.entity.get("spawnflags").and_then(|n| n.parse::<u32>().ok()).unwrap_or(0) & 1 == 0 && !s.entity.pairs.iter().any(|(key,_)|key.eq_ignore_ascii_case("OnPlayerPickup"))).map(|(id,_)|id).collect();
         for id in ids { self.pickup_portalgun(id); }
     }
     fn pickup_portalgun(&mut self, id: usize) {

@@ -158,17 +158,44 @@ impl Scene {
         let idle = skeleton.clips.iter().find(|c| c.name.eq_ignore_ascii_case("idle")).or_else(|| skeleton.clips.iter().find(|c| c.name.to_lowercase().contains("idle"))).ok_or_else(|| format!("viewmodel idle unavailable: {:?}", skeleton.unsupported))?;
         let posed = skeleton.skin(&model.vertices, &idle.name, 0.)?;
         let mut textures = vec![];
-        // Portal's shipped viewmodel includes a legacy hands material whose VTF
-        // is absent from this game root. Keep that surface transparent rather
-        // than fabricating a hand texture or failing the actual gun upload.
+        // Resolve all authored CD-material candidates: the original hands live
+        // under v_models/v_portalgun, not the first legacy search directory.
         for (index, candidates) in model.materials.iter().enumerate() {
-            if !posed.iter().any(|v| model.skins[0][v.material] == index) || candidates.iter().any(|n| n.ends_with("/v_hands")) { textures.push(vec![0; TILE*TILE*4]); continue; }
-            let m = material(fs, candidates.first().ok_or("empty material")?, 0)?;
+            if !posed.iter().any(|v| model.skins[0][v.material] == index) { textures.push(vec![0; TILE*TILE*4]); continue; }
+            let m = candidates.iter().find_map(|name| material(fs,name,0).ok()).or_else(|| {
+                // Shipped v_hands.vmt references a nonexistent HL2-era directory;
+                // its original diffuse is actually alongside this Portal VMT.
+                candidates.iter().filter(|n|n.ends_with("/v_hands")).find_map(|n| {
+                    let texture=decode_vtf(&fs.read(&format!("materials/{n}.vtf")).ok()?).ok()?;
+                    Some(Material {texture,unlit:false,alpha_test:false,translucent:false})
+                })
+            }).ok_or_else(||format!("missing viewmodel material {candidates:?}"))?;
             textures.push(resample(&m));
         }
         let skin = model.skins.first().ok_or("viewmodel skin")?;
-        let vertices = posed.iter().map(|v| MeshVertex { position:v.position.to_array(), uv:v.uv, light_uv:[0.,0.], layer:skin[v.material] as u32, model:0, unlit:1., normal:v.normal.to_array() }).collect();
-        Ok(Self { scene_durations:Default::default(), animations:vec![], static_props:0, dynamic_props:0, skipped_dynamic_props:0, skipped_props:0, prop_triangles:0, displacement_triangles:0, displacement_faces:0, vertices, textures, lightmap:vec![255; LIGHT_SIZE*LIGHT_SIZE*4], filtered_faces:0, lightmapped_faces:0, warnings:vec![], origins:vec![Vec3::ZERO] })
+        let vertices = posed.iter().map(|v| MeshVertex { position:v.position.to_array(), uv:v.uv, light_uv:[0.,0.], layer:skin[v.material] as u32, model:0, unlit:2., normal:v.normal.to_array() }).collect();
+        let animation = AnimationInstance { name:"viewmodel".into(), range:0..posed.len(), initial:"idle".into(), solid:false, updated:true, last_pose:("idle".into(),0.), vertices:crate::animation::SkinMesh::new(&model.vertices), rotation:glam::Mat3::IDENTITY, offset:Vec3::ZERO, skeleton };
+        Ok(Self { scene_durations:Default::default(), animations:vec![animation], static_props:0, dynamic_props:0, skipped_dynamic_props:0, skipped_props:0, prop_triangles:0, displacement_triangles:0, displacement_faces:0, vertices, textures, lightmap:vec![255; LIGHT_SIZE*LIGHT_SIZE*4], filtered_faces:0, lightmapped_faces:0, warnings:vec![], origins:vec![Vec3::ZERO] })
+    }
+
+    /// One-shot authored sequences return to idle; no synthetic sway or audio events.
+    pub fn weapon_pose(&self, sequence: &str, elapsed: f32) -> Result<(String,f32),String> {
+        let clip = self.animations.first().ok_or("missing weapon skeleton")?.skeleton.clip(sequence)?;
+        if !clip.looping && elapsed > clip.duration() { Ok(("idle".into(),0.)) }
+        else { Ok((sequence.into(),elapsed)) }
+    }
+    pub fn pose_weapon(&mut self, sequence: &str, elapsed: f32) -> Result<(),String> {
+        let (sequence,time) = self.weapon_pose(sequence,elapsed)?;
+        let a = self.animations.first_mut().ok_or("missing weapon skeleton")?;
+        a.updated = a.last_pose != (sequence.clone(),time);
+        if !a.updated {return Ok(());}
+        let posed = a.skeleton.skin(&a.vertices.vertices,&sequence,time)?;
+        for (dst,&index) in self.vertices.iter_mut().zip(&a.vertices.indices) {
+            dst.position=posed[index].position.to_array();
+            dst.normal=posed[index].normal.to_array();
+        }
+        a.last_pose=(sequence,time);
+        Ok(())
     }
 
     pub fn animate(&mut self, runtime: &crate::entity::Runtime) -> Result<usize, String> {

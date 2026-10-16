@@ -146,9 +146,11 @@ fn interactive_impl(
         .map(|s| crate::scene_gpu::GpuScene::new(&device, &queue, s, config.format))
         .transpose()?;
     // Own GPU scene/uniforms: never upload this camera into linked world views.
-    let weapon_gpu = if surfaces.is_some() {
-        root.as_ref().map(|r| r.weapon_viewmodel()).transpose()?.map(|s| crate::scene_gpu::GpuScene::new(&device, &queue, &s, config.format)).transpose()?
-    } else { None };
+    let mut weapon_scene = root.as_ref().map(|r| r.weapon_viewmodel()).transpose()?;
+    let weapon_gpu = weapon_scene.as_ref().map(|s| crate::scene_gpu::GpuScene::new(&device,&queue,s,config.format)).transpose()?;
+    let mut weapon_sequence = "draw";
+    let mut weapon_started = Instant::now();
+    let mut weapon_owned = false;
     let m = Mat4::IDENTITY;
     let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
@@ -323,7 +325,7 @@ fn interactive_impl(
                         if controls.captured {
                             let eye=player.position+Vec3::Z*player.eye_height();
                             let channel=usize::from(button==MouseButton::Right);
-                            if runtime.portal_inventory[channel] {if let Some(audio)=&audio {audio.play(crate::audio::Event::one(audio_time,if channel==0 {"Weapon_Portalgun.fire_blue"} else {"Weapon_Portalgun.fire_red"},None));}}
+                            if runtime.portal_inventory[channel] {weapon_sequence="fire1";weapon_started=Instant::now();if let Some(audio)=&audio {audio.play(crate::audio::Event::one(audio_time,if channel==0 {"Weapon_Portalgun.fire_blue"} else {"Weapon_Portalgun.fire_red"},None));}}
                             if let Err(error)=portal_game.fire_player_with_facing(usize::from(button==MouseButton::Right),eye,player.forward(),Vec3::new(player.yaw.cos(),player.yaw.sin(),0.),&runtime,&mut world){println!("portal placement rejected: {error}");}
                             return;
                         }
@@ -730,7 +732,15 @@ fn interactive_impl(
                             }
                         }
 
-                        if runtime.portal_inventory.iter().any(|owned| *owned) {
+                        let owned=runtime.portal_inventory.iter().any(|owned| *owned);
+                        if owned && !weapon_owned {weapon_sequence="draw";weapon_started=Instant::now();}
+                        weapon_owned=owned;
+                        if std::env::var_os("SOURCE_WEAPON_DEMO").is_some() && frames==150 {weapon_sequence="fire1";weapon_started=Instant::now();}
+                        if owned {
+                            if let (Some(s),Some(gpu))=(&mut weapon_scene,&weapon_gpu) {
+                                if let Err(e)=s.pose_weapon(weapon_sequence,weapon_started.elapsed().as_secs_f32()) {eprintln!("weapon animation: {e}");target.exit();return;}
+                                gpu.animation_vertices(&queue,s);
+                            }
                             if let Some(gpu) = &weapon_gpu {
                                 // Source authored viewmodel: X forward, Y left, Z up.
                                 // 54 degree horizontal FOV at Source's reference 4:3.
@@ -747,6 +757,11 @@ fn interactive_impl(
                         }
                         crate::frame_profile::mark(6);
                         queue.submit(Some(enc.finish()));
+                        if std::env::var_os("SOURCE_WEAPON_DEMO").is_some() && [30,120,150,160,175,220].contains(&frames) {
+                            let path=format!("evidence/weapon-{frames:04}.png");
+                            if let Err(e)=capture_surface(&device,&queue,&frame.texture,config.width,config.height,config.format,&path){eprintln!("weapon capture: {e}");}
+                            if frames==220 {target.exit();}
+                        }
                         crate::frame_profile::mark(7);
                         if frames == if smoke { 600 } else { 120 } {
                             if let Ok(path) = std::env::var("SOURCE_SCREENSHOT")
