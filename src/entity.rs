@@ -1114,6 +1114,8 @@ impl Runtime {
         );
     }
     pub fn tick(&mut self, dt: f32, player: &mut Player, world: &mut World) {
+        let _profile = crate::frame_profile::scope(10);
+        crate::frame_profile::count(0, 1);
         if !dt.is_finite() || dt <= 0. || dt > 0.1 {
             return;
         }

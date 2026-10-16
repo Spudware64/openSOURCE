@@ -259,6 +259,10 @@ impl GpuScene {
             if !a.updated {
                 continue;
             }
+            crate::frame_profile::count(1, 1);
+            crate::frame_profile::count(2, a.range.len() as u64);
+            crate::frame_profile::count(3, (a.range.len() * std::mem::size_of::<MeshVertex>()) as u64);
+            crate::frame_profile::count(4, 1);
             queue.write_buffer(
                 &self.vertices,
                 (a.range.start * std::mem::size_of::<MeshVertex>()) as u64,

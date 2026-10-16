@@ -245,6 +245,7 @@ fn interactive_impl(
     let mut last = Instant::now();
     let mut accumulator = 0f32;
     let mut render_position = crate::play::RenderPosition::default();
+    crate::frame_profile::init();
     let mut frames = 0u64;
     let smoke = std::env::var_os("SOURCE_SMOKE")
         .or_else(|| std::env::var_os("PORTAL_SMOKE"))
@@ -365,6 +366,7 @@ fn interactive_impl(
                         if surfaces.is_some() {portal_gpu=Some(crate::portal_gpu::PortalGpu::new(&device,config.format,config.width,config.height));}
                     }
                     WindowEvent::RedrawRequested => {
+                        crate::frame_profile::begin();
                         let now = Instant::now();
                         let trace_frame_dt = (now - last).as_secs_f32();
                         accumulator += trace_frame_dt.min(0.1);
@@ -619,6 +621,7 @@ fn interactive_impl(
                             1.,
                             20000.,
                         ) * Mat4::look_at_rh(eye, eye + player.forward(), player.view_up);
+                        crate::frame_profile::mark(0);
                         queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&m.to_cols_array()));
                         if let (Some(scene), Some(gpu)) = (&mut scene, &textured) {
                             if let Err(error) = scene.animate(&runtime) {
@@ -626,7 +629,9 @@ fn interactive_impl(
                                 target.exit();
                                 return;
                             }
+                            crate::frame_profile::mark(1);
                             gpu.animation_vertices(&queue, scene);
+                            crate::frame_profile::mark(2);
                         }
                         if let Some(gpu) = &textured {
                             gpu.update(&queue, m, &runtime.origins);
@@ -640,6 +645,7 @@ fn interactive_impl(
                                 gpu.update_view(&queue,index+1,matrix,clip);
                             }}
                         }
+                        crate::frame_profile::mark(3);
                         let frame = match surface.get_current_texture() {
                             Ok(f) => f,
                             Err(wgpu::SurfaceError::OutOfMemory) => {
@@ -651,11 +657,13 @@ fn interactive_impl(
                                 return;
                             }
                         };
+                        crate::frame_profile::mark(4);
                         let cv = frame.texture.create_view(&Default::default());
                         let dv = &depth;
                         let mut enc = device.create_command_encoder(&Default::default());
                         if let (Some(portals),Some(gpu))=(&portal_gpu,&textured) {if world.portals.iter().all(Option::is_some) {for index in 0..2 {portals.remote(&mut enc,gpu,index);}}}
                         {
+                            crate::frame_profile::mark(5);
                             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                                 label: None,
                                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -695,7 +703,9 @@ fn interactive_impl(
                             }
                         }
 
+                        crate::frame_profile::mark(6);
                         queue.submit(Some(enc.finish()));
+                        crate::frame_profile::mark(7);
                         if frames == if smoke { 600 } else { 120 } {
                             if let Ok(path) = std::env::var("SOURCE_SCREENSHOT")
                                 .or_else(|_| std::env::var("PORTAL_SCREENSHOT"))
@@ -796,7 +806,10 @@ fn interactive_impl(
                             println!("portal smoke frame {frames} player {:?} velocity {:?} crossings {} grounded {}",player.position,player.velocity,player.portal_crossings,player.grounded);
                             if frames==180 {assert!(player.portal_crossings>0,"scripted portal crossing failed");if std::env::var_os("SOURCE_PORTAL_EXIT").is_some(){target.exit();}}
                         }
+                        crate::frame_profile::mark(8);
                         frame.present();
+                        crate::frame_profile::mark(9);
+                        crate::frame_profile::finish();
                         frames += 1;
                         if demo.is_some() && frames >= 180 {
                             println!(

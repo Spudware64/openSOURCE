@@ -40,6 +40,8 @@ impl RigidPhysics {
         if unchanged {
             return;
         }
+        let _profile = crate::frame_profile::scope(12);
+        crate::frame_profile::count(6, 1);
         for h in self.scenery.drain(..) {
             self.colliders
                 .remove(h, &mut self.islands, &mut self.bodies, &mut self.soft, true);

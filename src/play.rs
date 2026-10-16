@@ -327,6 +327,8 @@ impl World {
         enabled: &[bool],
         rotations: &[glam::Mat3],
     ) {
+        let _profile = crate::frame_profile::scope(11);
+        crate::frame_profile::count(5, 1);
         self.model_origins = origins.to_vec();
         self.brushes.clear();
         for (model, brushes) in self.model_brushes.iter().enumerate() {
