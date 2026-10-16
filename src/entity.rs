@@ -12,6 +12,8 @@ struct Output {
 }
 #[derive(Clone)]
 struct State {
+    timer: Option<(f32, Option<f32>)>,
+    counter: Option<(f32, f32, f32)>,
     parent: Option<usize>,
     anchor: Mat4,
     reference: Mat4,
@@ -262,7 +264,7 @@ impl Runtime {
             }
             let mut outputs = vec![];
             for (key, value) in &e.pairs {
-                if !key.starts_with("On") {
+                if !key.starts_with("On") && key != "OutValue" {
                     continue;
                 }
                 let fields = value
@@ -348,6 +350,28 @@ impl Runtime {
                 r.names.entry(name.to_owned()).or_default().push(id);
             }
             r.states.push(State {
+                timer: if class == "logic_timer" {
+                    let interval = number(&e, "RefireTime", 1.)?.max(1. / 120.);
+                    Some((interval, enabled.then_some(interval)))
+                } else {
+                    None
+                },
+                counter: if class == "math_counter" {
+                    let min = number(&e, "min", 0.)?;
+                    let max = number(&e, "max", 0.)?;
+                    let value = number(&e, "startvalue", 0.)?;
+                    Some((
+                        if max > min {
+                            value.clamp(min, max)
+                        } else {
+                            value
+                        },
+                        min,
+                        max,
+                    ))
+                } else {
+                    None
+                },
                 parent: None,
                 anchor: Mat4::from_translation(origin)
                     * Mat4::from_mat3(crate::models::rotation(vector(
@@ -523,6 +547,9 @@ impl Runtime {
         (origins, rotations)
     }
     fn fire(&mut self, id: usize, event: &str) {
+        self.fire_value(id, event, None);
+    }
+    fn fire_value(&mut self, id: usize, event: &str, value: Option<&str>) {
         if self.states[id].killed {
             return;
         }
@@ -544,7 +571,11 @@ impl Runtime {
                 due: self.time + o.delay,
                 target: o.target.clone(),
                 input: o.input.clone(),
-                parameter: o.parameter.clone(),
+                parameter: if o.parameter.is_empty() {
+                    value.unwrap_or("").to_owned()
+                } else {
+                    o.parameter.clone()
+                },
                 source: id,
                 activator,
             });
@@ -646,6 +677,78 @@ impl Runtime {
             .unwrap_or("")
             .to_owned();
         match input.to_ascii_lowercase().as_str() {
+            "invalue" if class == "logic_case" => {
+                let matched = (1..=16).find(|n| {
+                    self.states[id]
+                        .entity
+                        .get(&format!("Case{n:02}"))
+                        .is_some_and(|v| v.eq_ignore_ascii_case(parameter))
+                });
+                if let Some(n) = matched {
+                    self.fire(id, &format!("OnCase{n:02}"));
+                } else {
+                    self.fire_value(id, "OnDefault", Some(parameter));
+                }
+            }
+            "add" | "setvalue" if class == "math_counter" => {
+                if !self.states[id].enabled {
+                    return;
+                }
+                let Ok(value) = parameter.parse::<f32>() else {
+                    return;
+                };
+                if !value.is_finite() {
+                    return;
+                }
+                let (old, min, max) = self.states[id].counter.unwrap();
+                let raw = if input.eq_ignore_ascii_case("add") {
+                    old + value
+                } else {
+                    value
+                };
+                if !raw.is_finite() {
+                    return;
+                }
+                let next = if max > min { raw.clamp(min, max) } else { raw };
+                self.states[id].counter.as_mut().unwrap().0 = next;
+                if max > min && next != old {
+                    if next == min {
+                        self.fire(id, "OnHitMin");
+                    }
+                    if next == max {
+                        self.fire(id, "OnHitMax");
+                    }
+                }
+                self.fire_value(id, "OutValue", Some(&next.to_string()));
+            }
+            "enable" | "disable" | "toggle" if class == "logic_timer" => {
+                let enabled = match input.to_ascii_lowercase().as_str() {
+                    "enable" => true,
+                    "disable" => false,
+                    _ => !self.states[id].enabled,
+                };
+                if enabled != self.states[id].enabled {
+                    self.states[id].enabled = enabled;
+                    let timer = self.states[id].timer.as_mut().unwrap();
+                    timer.1 = enabled.then_some(self.time + timer.0);
+                }
+            }
+            "refiretime" if class == "logic_timer" => {
+                if let Ok(interval) = parameter.parse::<f32>() {
+                    if interval.is_finite() && interval > 0. {
+                        let enabled = self.states[id].enabled;
+                        self.states[id].timer = Some((
+                            interval.max(1. / 120.),
+                            enabled.then_some(self.time + interval.max(1. / 120.)),
+                        ));
+                    }
+                }
+            }
+            "resettimer" if class == "logic_timer" => {
+                let enabled = self.states[id].enabled;
+                let timer = self.states[id].timer.as_mut().unwrap();
+                timer.1 = enabled.then_some(self.time + timer.0);
+            }
             "start"
                 if class == "logic_choreographed_scene" && self.scene_times.contains_key(&id) =>
             {
@@ -751,8 +854,12 @@ impl Runtime {
                             let pos = self.states[id].entity.origin().unwrap_or(Vec3::ZERO);
                             // ForceSpawn checks room only with SF_ENTMAKER_CHECK_FOR_SPACE.
                             // Authored makers may intentionally intersect their supporting brush.
-                            let flags = self.states[id].entity.get("spawnflags")
-                                .unwrap_or("0").parse::<u32>().unwrap_or(0);
+                            let flags = self.states[id]
+                                .entity
+                                .get("spawnflags")
+                                .unwrap_or("0")
+                                .parse::<u32>()
+                                .unwrap_or(0);
                             let bounds = self.states[n].bounds;
                             let center = pos + (bounds.0 + bounds.1) * 0.5;
                             let extent = (bounds.1 - bounds.0) * 0.5;
@@ -997,6 +1104,18 @@ impl Runtime {
             return;
         }
         self.time += dt;
+        // Stable entity order, one scheduled think per simulation step; no wall clock.
+        for id in 0..self.states.len() {
+            if self.states[id].killed || !self.states[id].enabled {
+                continue;
+            }
+            if let Some((interval, Some(due))) = self.states[id].timer {
+                if due <= self.time {
+                    self.states[id].timer.as_mut().unwrap().1 = Some(self.time + interval);
+                    self.fire(id, "OnTimer");
+                }
+            }
+        }
         let completed: Vec<_> = self
             .scene_times
             .iter_mut()

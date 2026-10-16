@@ -4,16 +4,15 @@ use portal_bsp_viewer::{
     play::{Player, World},
 };
 
-// Characterization, not a portal fix: preserve the exact unsupported boundary
-// so a future generic timer/counter/case implementation has an authored repro.
+// Enter the actual authored brush; never force a case output or portal input.
 #[test]
-fn second_room_authored_cycle_exposes_unsupported_case_input() {
+fn second_room_authored_blue_cycle() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let mut r = Runtime::new(&b).unwrap();
     r.portal_events = Some(vec![]);
     let mut w = World::parse(&b).unwrap();
     let mut p = Player::new(Vec3::new(-1088., -512., 592.), 0.);
-    for _ in 0..720 {
+    for _ in 0..2040 {
         r.tick(1. / 120., &mut p, &mut w);
     }
     let events = r.portal_events.as_ref().unwrap();
@@ -23,12 +22,31 @@ fn second_room_authored_cycle_exposes_unsupported_case_input() {
             .any(|(name, active)| name == "portal_red_1" && *active),
         "entry trigger must actually fire: {events:?}"
     );
-    assert!(!events
+    let blue: Vec<_> = events
         .iter()
-        .any(|(name, active)| name == "portal_blue_1" && *active));
-    assert!(
-        r.unknown_inputs.contains("logic_case:InValue"),
-        "{:?}",
-        r.unknown_inputs
+        .filter(|(n, active)| {
+            ["portal_blue_1", "portal_blue_2", "portal_blue_3"].contains(&n.as_str()) && *active
+        })
+        .map(|(n, _)| n.as_str())
+        .collect();
+    assert_eq!(
+        blue,
+        [
+            "portal_blue_1",
+            "portal_blue_2",
+            "portal_blue_3",
+            "portal_blue_1"
+        ]
     );
+    for unsupported in [
+        "logic_case:InValue",
+        "math_counter:Add",
+        "math_counter:SetValue",
+    ] {
+        assert!(
+            !r.unknown_inputs.contains(unsupported),
+            "{:?}",
+            r.unknown_inputs
+        );
+    }
 }
