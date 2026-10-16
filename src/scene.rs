@@ -27,7 +27,7 @@ pub struct AnimationInstance {
     pub solid: bool,
     pub updated: bool,
     last_pose: (String, f32),
-    vertices: Vec<crate::studio::StudioVertex>,
+    vertices: crate::animation::SkinMesh,
     rotation: glam::Mat3,
     offset: Vec3,
 }
@@ -171,11 +171,11 @@ impl Scene {
             }
             instance.rotation = rotation;
             instance.offset = offset;
-            let posed = instance.skeleton.skin(&instance.vertices, sequence, time)?;
+            let posed = instance.skeleton.skin(&instance.vertices.vertices, sequence, time)?;
             instance.last_pose = (sequence.to_owned(), time);
             instance.updated = true;
             updated += 1;
-            for (dst, src) in self.vertices[instance.range.clone()].iter_mut().zip(posed) {
+            for (dst, src) in self.vertices[instance.range.clone()].iter_mut().zip(instance.vertices.indices.iter().map(|&i| posed[i])) {
                 dst.position = (instance.rotation * src.position + instance.offset).to_array();
                 dst.normal = (instance.rotation * src.normal).to_array();
             }
@@ -794,7 +794,7 @@ impl Scene {
                             initial: initial.to_owned(),
                             last_pose: (initial.to_owned(), 0.),
                             updated: false,
-                            vertices: model.vertices.clone(),
+                            vertices: crate::animation::SkinMesh::new(&model.vertices),
                             rotation,
                             offset: prop.origin - origins[parents[instance]],
                         });

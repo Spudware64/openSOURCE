@@ -31,6 +31,27 @@ pub struct Skeleton {
     pub unsupported: Vec<String>,
     pub initial_sequence: Option<String>,
 }
+/// Immutable indexing of identical skin inputs; built once, never pose-cached.
+pub struct SkinMesh {
+    pub vertices: Vec<StudioVertex>,
+    pub indices: Vec<usize>,
+}
+impl SkinMesh {
+    pub fn new(vertices: &[StudioVertex]) -> Self {
+        let mut unique = Vec::new();
+        let mut lookup = std::collections::HashMap::new();
+        let indices = vertices.iter().map(|v| {
+            let key = (v.position.to_array().map(f32::to_bits),
+                v.normal.to_array().map(f32::to_bits), v.uv.map(f32::to_bits),
+                v.material, v.weights.map(f32::to_bits), v.bones);
+            *lookup.entry(key).or_insert_with(|| {
+                unique.push(*v);
+                unique.len()-1
+            })
+        }).collect();
+        Self { vertices: unique, indices }
+    }
+}
 struct Reader<'a>(&'a [u8]);
 impl Reader<'_> {
     fn bytes(&self, p: usize, n: usize) -> Result<&[u8], String> {
