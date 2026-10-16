@@ -24,6 +24,7 @@ pub struct Game {
     pub automatic_surfaces: Option<Surfaces>,
     pub portals: [Option<Portal>; 2],
     names: [Option<String>; 2],
+    initial_authored_fitted: bool,
     authored: std::collections::HashMap<String, (usize, Portal)>,
 }
 impl Game {
@@ -32,6 +33,7 @@ impl Game {
             automatic_surfaces: None,
             portals: [None; 2],
             names: [None, None],
+            initial_authored_fitted: false,
             authored: std::collections::HashMap::new(),
         };
         for entity in crate::entity::parse_entities(crate::lump(bytes, 0, 1)?)? {
@@ -56,8 +58,26 @@ impl Game {
         runtime: &mut crate::entity::Runtime,
         world: &mut crate::play::World,
     ) {
+        if !self.initial_authored_fitted {
+            if let Some(surfaces) = &self.automatic_surfaces {
+                for portal in self.portals.iter_mut().flatten() {
+                    if let Ok(fitted) = surfaces.fit_authored(*portal) {
+                        *portal = fitted;
+                    }
+                }
+                self.initial_authored_fitted = true;
+            }
+        }
         for (index, eye, direction) in std::mem::take(&mut runtime.portal_shots) {
-            runtime.sound_events.push(crate::audio::Event::one(runtime.sound_time(),if index==0 {"Weapon_Portalgun.fire_blue_npc"} else {"Weapon_Portalgun.fire_red_npc"},Some(eye)));
+            runtime.sound_events.push(crate::audio::Event::one(
+                runtime.sound_time(),
+                if index == 0 {
+                    "Weapon_Portalgun.fire_blue_npc"
+                } else {
+                    "Weapon_Portalgun.fire_red_npc"
+                },
+                Some(eye),
+            ));
             if let Some(surfaces) = &self.automatic_surfaces {
                 match surfaces.place(eye, direction) {
                     Ok(portal) => {
@@ -145,8 +165,21 @@ impl Game {
         for (name, active) in events.drain(..) {
             if let Some(&(index, portal)) = self.authored.get(&name) {
                 if active {
-                    self.portals[index] = Some(portal);
-                    self.names[index] = Some(name);
+                    // Map entities specify a desired placement, not an already fitted
+                    // aperture. Use the same connected surface patch as fired portals.
+                    let fitted = self
+                        .automatic_surfaces
+                        .as_ref()
+                        .map(|s| s.fit_authored(portal))
+                        .unwrap_or(Ok(portal));
+                    if let Ok(portal) = fitted {
+                        self.portals[index] = Some(portal);
+                        self.names[index] = Some(name);
+                    } else {
+                        eprintln!("authored fit rejected {name} {portal:?}");
+                        self.portals[index] = None;
+                        self.names[index] = None;
+                    }
                 } else if self.names[index].as_deref() == Some(&name) {
                     self.portals[index] = None;
                     self.names[index] = None;
@@ -350,6 +383,51 @@ impl Surfaces {
             },
         );
         self.fit_on_patch(portal, face)
+    }
+
+    /// Resolve a map-authored pose against its supporting BSP patch.
+    pub fn fit_authored(&self, portal: Portal) -> Result<Portal, String> {
+        // Existing correctly oriented authored placements use Source's oval
+        // footprint, not the conservative fired-portal rectangle. Do not bump
+        // these a second time (notably the floor-adjacent chamber00 portals).
+        if self.faces.iter().any(|s| {
+            s.allowed
+                && s.normal.dot(portal.normal) > 0.9999
+                && s.normal.dot(portal.center - s.points[0]).abs() < 0.1
+                && s.contains(portal.center)
+        }) {
+            return Ok(portal);
+        }
+        let mut fits = self
+            .faces
+            .iter()
+            .filter(|s| {
+                s.allowed
+                    && s.normal.dot(portal.normal).abs() < 0.01
+                    && s.normal.dot(portal.center - s.points[0]).abs() < 0.1
+                    && s.contains(portal.center)
+            })
+            .filter_map(|s| {
+                // Resolve the actual supporting BSP plane for tangent authored poses.
+                if s.normal.dot(portal.up).abs() > 0.99 {
+                    return None;
+                }
+                let supported = Portal::new(portal.center, s.normal, portal.up);
+                self.fit_on_patch(supported, s).ok()
+            })
+            .collect::<Vec<_>>();
+        fits.sort_by(|a, b| {
+            let aligned = |p: &Portal| p.normal.dot(portal.normal) > 0.9999;
+            aligned(b).cmp(&aligned(a)).then_with(|| {
+                a.center
+                    .distance_squared(portal.center)
+                    .total_cmp(&b.center.distance_squared(portal.center))
+            })
+        });
+        // Some authored portals live on moving models or are deliberately
+        // floating (the relaxation-vault pair). World-face fitting cannot
+        // validate these; retain their entity transform rather than fizzle them.
+        Ok(fits.into_iter().next().unwrap_or(portal))
     }
 
     /// Bounded rectangular approximation of Source bumping, not Valve's oval solver.
