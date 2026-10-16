@@ -1188,10 +1188,40 @@ impl Runtime {
                 let offset = (s.bounds.0 + s.bounds.1) * 0.5;
                 let extent = (s.bounds.1 - s.bounds.0) * 0.5;
                 if self.held == Some(id) {
-                    let target =
-                        player.position + Vec3::Z * player.eye_height() + player.forward() * 64.;
+                    let eye = player.position + Vec3::Z * player.eye_height();
+                    let mut target = eye + player.forward() * 64. + offset;
                     let mut position = self.origins[model] + offset;
-                    let mut delta = target + offset - position;
+                    // The grab ray and held body live in different spaces once
+                    // the ray passes through a portal. Sweep to the entry before
+                    // mapping; never drag the cube through the intervening map.
+                    if let [Some(a), Some(b)] = world.portals {
+                        for (src, dst) in [(a, b), (b, a)] {
+                            let d0 = src.normal.dot(eye - src.center);
+                            let d1 = src.normal.dot(target - src.center);
+                            if d0 > 0. && d1 <= 0. {
+                                let at = eye.lerp(target, d0 / (d0 - d1));
+                                if !src.fits(at, extent) {
+                                    continue;
+                                }
+                                let mapped = src.map_point(dst, at) + dst.normal * 0.05;
+                                if !dst.fits(mapped, extent)
+                                    || world.body_overlap(id, mapped, extent)
+                                {
+                                    continue;
+                                }
+                                if position.distance(src.center) < position.distance(dst.center) {
+                                    let (f, _) = trace(id, position, at, extent);
+                                    if f < 1. {
+                                        continue;
+                                    }
+                                    position = mapped;
+                                }
+                                target = src.map_point(dst, target);
+                                break;
+                            }
+                        }
+                    }
+                    let mut delta = target - position;
                     for _ in 0..4 {
                         let (f, n) = trace(id, position, position + delta, extent);
                         position += delta * f;
