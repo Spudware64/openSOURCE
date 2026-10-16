@@ -114,7 +114,7 @@ fn material(fs: &Assets, name: &str, depth: usize) -> Result<Material, String> {
     }
     let base = kv::text(fields, "$basetexture")
         .ok_or_else(|| format!("{path}: unsupported shader/no basetexture {shader}"))?;
-    let base = base.trim_end_matches(".vtf");
+    let base = base.trim_end_matches(".vtf").replace('\\', "/");
     Ok(Material {
         texture: decode_vtf(&fs.read(&format!("materials/{base}.vtf"))?)?,
         unlit: shader.eq_ignore_ascii_case("UnlitGeneric"),
@@ -141,6 +141,36 @@ fn resample(m: &Material) -> Vec<u8> {
     out
 }
 impl Scene {
+    /// Original weapon-script viewmodel, posed once in authored idle coordinates.
+    /// Kept separate from BSP geometry and its animation/upload hot path.
+    pub fn weapon_viewmodel(fs: &Assets, weapon: &str) -> Result<Self, String> {
+        if !weapon.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') {
+            return Err("invalid weapon script name".into());
+        }
+        let script = fs.read(&format!("scripts/{weapon}.txt"))?;
+        let tree = kv::parse(std::str::from_utf8(&script).map_err(|e| e.to_string())?)?;
+        let fields = kv::child(&tree, "WeaponData").ok_or("weapon script block")?;
+        let path = kv::text(fields, "viewmodel").ok_or("weapon viewmodel")?;
+        let stem = path.trim_end_matches(".mdl");
+        let mdl = fs.read(path)?;
+        let model = crate::studio::decode(&mdl, &fs.read(&format!("{stem}.vvd"))?, &fs.read(&format!("{stem}.dx90.vtx"))?)?;
+        let skeleton = crate::animation::Skeleton::decode(&mdl, None)?;
+        let idle = skeleton.clips.iter().find(|c| c.name.eq_ignore_ascii_case("idle")).or_else(|| skeleton.clips.iter().find(|c| c.name.to_lowercase().contains("idle"))).ok_or_else(|| format!("viewmodel idle unavailable: {:?}", skeleton.unsupported))?;
+        let posed = skeleton.skin(&model.vertices, &idle.name, 0.)?;
+        let mut textures = vec![];
+        // Portal's shipped viewmodel includes a legacy hands material whose VTF
+        // is absent from this game root. Keep that surface transparent rather
+        // than fabricating a hand texture or failing the actual gun upload.
+        for (index, candidates) in model.materials.iter().enumerate() {
+            if !posed.iter().any(|v| model.skins[0][v.material] == index) || candidates.iter().any(|n| n.ends_with("/v_hands")) { textures.push(vec![0; TILE*TILE*4]); continue; }
+            let m = material(fs, candidates.first().ok_or("empty material")?, 0)?;
+            textures.push(resample(&m));
+        }
+        let skin = model.skins.first().ok_or("viewmodel skin")?;
+        let vertices = posed.iter().map(|v| MeshVertex { position:v.position.to_array(), uv:v.uv, light_uv:[0.,0.], layer:skin[v.material] as u32, model:0, unlit:1., normal:v.normal.to_array() }).collect();
+        Ok(Self { scene_durations:Default::default(), animations:vec![], static_props:0, dynamic_props:0, skipped_dynamic_props:0, skipped_props:0, prop_triangles:0, displacement_triangles:0, displacement_faces:0, vertices, textures, lightmap:vec![255; LIGHT_SIZE*LIGHT_SIZE*4], filtered_faces:0, lightmapped_faces:0, warnings:vec![], origins:vec![Vec3::ZERO] })
+    }
+
     pub fn animate(&mut self, runtime: &crate::entity::Runtime) -> Result<usize, String> {
         let mut updated = 0;
         for instance in &mut self.animations {

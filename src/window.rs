@@ -45,6 +45,7 @@ fn interactive_impl(
     portal_game.automatic_surfaces = surfaces.clone();
     if surfaces.is_some() {
         runtime.portal_events = Some(vec![]);
+        runtime.direct_launch_loadout();
     }
     let portal_smoke_mode = std::env::var("SOURCE_PORTAL_SMOKE").unwrap_or_default();
     let portal_smoke = !portal_smoke_mode.is_empty();
@@ -141,6 +142,10 @@ fn interactive_impl(
         .as_ref()
         .map(|s| crate::scene_gpu::GpuScene::new(&device, &queue, s, config.format))
         .transpose()?;
+    // Own GPU scene/uniforms: never upload this camera into linked world views.
+    let weapon_gpu = if surfaces.is_some() {
+        root.as_ref().map(|r| r.weapon_viewmodel()).transpose()?.map(|s| crate::scene_gpu::GpuScene::new(&device, &queue, &s, config.format)).transpose()?
+    } else { None };
     let m = Mat4::IDENTITY;
     let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
@@ -703,6 +708,21 @@ fn interactive_impl(
                             }
                         }
 
+                        if runtime.portal_inventory.iter().any(|owned| *owned) {
+                            if let Some(gpu) = &weapon_gpu {
+                                // Source authored viewmodel: X forward, Y left, Z up.
+                                // 54 degree horizontal FOV at Source's reference 4:3.
+                                let projection = Mat4::perspective_rh(2. * ((54f32.to_radians()/2.).tan() / (4./3.)).atan(), config.width as f32/config.height as f32, 0.1, 200.);
+                                gpu.update(&queue, projection * Mat4::look_at_rh(Vec3::ZERO, Vec3::X, Vec3::Z), &[Vec3::ZERO]);
+                                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("main camera ownership-gated weapon"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view:&cv, resolve_target:None, ops:wgpu::Operations { load:wgpu::LoadOp::Load, store:wgpu::StoreOp::Store } })],
+                                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view:dv, depth_ops:Some(wgpu::Operations { load:wgpu::LoadOp::Clear(1.), store:wgpu::StoreOp::Discard }), stencil_ops:None }),
+                                    timestamp_writes:None, occlusion_query_set:None,
+                                });
+                                gpu.draw(&mut pass);
+                            }
+                        }
                         crate::frame_profile::mark(6);
                         queue.submit(Some(enc.finish()));
                         crate::frame_profile::mark(7);

@@ -1094,6 +1094,13 @@ impl Runtime {
             false
         }
     }
+    /// Direct-start launcher policy, not a claim about Valve's spawn dispatch:
+    /// consume only the explicitly named later-chamber spawn-loadout weapon.
+    /// Normal transitions and chamber01's acquisition puzzle do not call this.
+    pub fn direct_launch_loadout(&mut self) {
+        let ids: Vec<_> = self.states.iter().enumerate().filter(|(_,s)| !s.killed && s.enabled && s.entity.get("classname") == Some("weapon_portalgun") && s.entity.get("targetname").is_some_and(|n| n.starts_with("portalgun_spawn_lvl")) && s.entity.get("parentname").is_none()).map(|(id,_)|id).collect();
+        for id in ids { self.pickup_portalgun(id); }
+    }
     fn pickup_portalgun(&mut self, id: usize) {
         for index in 0..2 {
             self.portal_inventory[index] |= self.states[id].entity.get(if index == 0 {

@@ -19,6 +19,9 @@ pub struct PreparedMap {
     pub surfaces: Option<crate::portal::Surfaces>,
 }
 impl GameRoot {
+    pub fn weapon_viewmodel(&self) -> Result<Scene, String> {
+        Scene::weapon_viewmodel(&Assets::from_game(&self.game, None)?, "weapon_portalgun")
+    }
     pub fn new(game: impl AsRef<Path>, workers: usize) -> Result<Self, String> {
         if !(1..=16).contains(&workers) {
             return Err("asset workers must be 1..16".into());
