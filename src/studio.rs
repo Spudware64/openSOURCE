@@ -79,8 +79,15 @@ pub fn decode(mdl: &[u8], vvd: &[u8], vtx: &[u8]) -> Result<StudioModel, String>
     m.range(0, 240)?;
     v.range(0, 64)?;
     t.range(0, 36)?;
-    if m.range(0, 4)? != b"IDST" || ![44, 46, 48].contains(&m.i(4)?) || m.n(76)? != mdl.len() {
-        return Err("unsupported MDL header/version/length".into());
+    let id = m.range(0, 4)?;
+    let version = m.i(4)?;
+    let declared_len = m.i(76)?;
+    if id != b"IDST"
+        || ![44, 46, 48].contains(&version)
+        || declared_len < 0
+        || declared_len as usize != mdl.len()
+    {
+        return Err(format!("unsupported MDL header/version/length: id={} version={version} declared_len={declared_len} file_len={} (supported versions: 44,46,48)", String::from_utf8_lossy(id).escape_debug(), mdl.len()));
     }
     // VVD positions/normals are already in model-space reference (bind) pose.
     // Bone animation is deliberately not evaluated here.

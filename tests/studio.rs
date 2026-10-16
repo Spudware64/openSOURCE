@@ -82,3 +82,20 @@ fn real_static_model_decodes_geometry_uv_normals_and_materials() {
         model.materials
     );
 }
+
+#[test]
+fn rejected_mdl_reports_observed_header_values() {
+    let (mut mdl, vvd, vtx) = files();
+    mdl[4..8].copy_from_slice(&49i32.to_le_bytes());
+    let error = decode(&mdl, &vvd, &vtx).err().unwrap();
+    assert!(error.contains("id=IDST"), "{error}");
+    assert!(error.contains("version=49"), "{error}");
+    assert!(
+        error.contains(&format!("declared_len={}", mdl.len())),
+        "{error}"
+    );
+    assert!(
+        error.contains(&format!("file_len={}", mdl.len())),
+        "{error}"
+    );
+}

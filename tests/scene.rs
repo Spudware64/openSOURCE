@@ -18,7 +18,7 @@ fn real_chamber_has_textures_uvs_baked_lighting_and_no_nodraw() {
             || (w.starts_with("initial pose models/")
                 && w.ends_with("unknown/unsupported sequence idle; bind fallback"))
             || (w.starts_with("prop models/props_animsigns/signage_num0")
-                && w.ends_with("unsupported MDL header/version/length"))),
+                && w.contains("unsupported MDL header/version/length: id="))),
         "{:?}",
         s.warnings
     );
