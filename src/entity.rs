@@ -1843,5 +1843,46 @@ pub fn parse_entities(bytes: &[u8]) -> Result<Vec<Entity>, String> {
         p += 1;
         out.push(Entity { pairs });
     }
+    materialize_startup_templates(&mut out)?;
     Ok(out)
+}
+
+/// Resolve single-instance, non-physics templates spawned unconditionally on map
+/// startup. Keep their names and I/O intact so rendering and trigger geometry use
+/// the same placement. Repeated/delayed makers still require runtime cloning.
+fn materialize_startup_templates(entities: &mut [Entity]) -> Result<(), String> {
+    let startup: Vec<String> = entities.iter()
+        .filter(|e| e.get("classname") == Some("logic_auto"))
+        .flat_map(|e| e.pairs.iter())
+        .filter(|(k,_)| k == "OnMapSpawn")
+        .filter_map(|(_,v)| {
+            let fields: Vec<_> = v.split(if v.contains('\u{1b}') {'\u{1b}'} else {','}).collect();
+            (fields.len()==5 && fields[1].eq_ignore_ascii_case("ForceSpawn") && fields[3].parse::<f32>().ok()==Some(0.))
+                .then(|| fields[0].to_owned())
+        }).collect();
+    let original=entities.to_vec();
+    for maker in original.iter().filter(|e| e.get("classname")==Some("env_entity_maker") && startup.iter().any(|n|Some(n.as_str())==e.get("targetname"))) {
+        let Some(template)=original.iter().find(|e| e.get("classname")==Some("point_template") && e.get("targetname")==maker.get("EntityTemplate")) else {continue};
+        // Only bake unique makers: cloning and name fixups are deliberately not
+        // approximated by moving a shared prototype more than once.
+        if original.iter().filter(|e|e.get("classname")==Some("env_entity_maker") && e.get("EntityTemplate")==maker.get("EntityTemplate")).count()!=1 {continue;}
+        let names: Vec<_>=template.pairs.iter().filter(|(k,_)|k.starts_with("Template")).map(|(_,v)|v.as_str()).collect();
+        if original.iter().any(|e| names.contains(&e.get("targetname").unwrap_or("")) && e.get("classname")==Some("prop_physics")) {continue;}
+        let source=template.origin()?;
+        let rotation=crate::models::rotation(vector(maker.get("angles").unwrap_or("0 0 0"))?);
+        for e in entities.iter_mut().filter(|e|names.contains(&e.get("targetname").unwrap_or(""))) {
+            let position=maker.origin()?+rotation*(e.origin()?-source);
+            let local=crate::models::rotation(vector(e.get("angles").unwrap_or("0 0 0"))?);
+            let composed=rotation*local;
+            let forward=composed.x_axis;
+            let horizontal=forward.truncate().length();
+            let (yaw,roll)=if horizontal<1e-5 {((-composed.y_axis.x).atan2(composed.y_axis.y),0.)} else {(forward.y.atan2(forward.x),composed.y_axis.z.atan2(composed.z_axis.z))};
+            let angles=Vec3::new((-forward.z).atan2(horizontal).to_degrees(),yaw.to_degrees(),roll.to_degrees());
+            for (key,value) in [("origin",position),("angles",angles)] {
+                let value=format!("{} {} {}",value.x,value.y,value.z);
+                if let Some(pair)=e.pairs.iter_mut().find(|(k,_)|k==key) {pair.1=value;} else {e.pairs.push((key.into(),value));}
+            }
+        }
+    }
+    Ok(())
 }

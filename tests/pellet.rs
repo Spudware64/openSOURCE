@@ -47,7 +47,9 @@ fn real_catcher_fires_authored_platform_outputs() {
  r.input("energy_ball_launcher_lvl5","Enable","");
  for _ in 0..3 {r.tick(1./120.,&mut p,&mut w);}
  // Isolated detector regression: inject a real launched pellet into the authored trigger approach, not a solved map route.
- r.pellets[0].position=Vec3::new(-1280.,878.,-56.);r.pellets[0].velocity=Vec3::X*200.;
+ let entities=parse_entities(portal_bsp_viewer::lump(&b,0,1).unwrap()).unwrap();
+ let center=entities.iter().find(|e|e.get("targetname")==Some("ball_trap_10")).unwrap().origin().unwrap();
+ r.pellets[0].position=center-Vec3::Y*64.;r.pellets[0].velocity=Vec3::Y*200.;
  for _ in 0..60 {r.tick(1./120.,&mut p,&mut w);}
  assert!(!r.is_enabled("ball_trap_10"));
  assert!(!r.is_enabled("energy_ball_launcher_lvl5"));
