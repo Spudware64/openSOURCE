@@ -660,6 +660,7 @@ fn interactive_impl(
                             }
                             crate::frame_profile::mark(1);
                             gpu.animation_vertices(&queue, scene);
+                            gpu.update_pellets(&queue, &runtime.pellets);
                             crate::frame_profile::mark(2);
                         }
                         if let Some(gpu) = &textured {

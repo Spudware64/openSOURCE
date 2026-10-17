@@ -2,6 +2,9 @@ use crate::scene::{MeshVertex, Scene, LIGHT_SIZE, TILE};
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 pub(crate) struct GpuScene {
+    pellets: wgpu::Buffer,
+    pellet_count: std::cell::Cell<u32>,
+    pellet_layer: u32,
     pipeline: wgpu::RenderPipeline,
     translucent_pipeline: wgpu::RenderPipeline,
     translucent: Vec<(u32, Vec3, usize)>,
@@ -22,7 +25,7 @@ impl GpuScene {
     ) -> Result<Self, String> {
         let limits = device.limits();
         if scene.textures.is_empty()
-            || scene.textures.len() > limits.max_texture_array_layers as usize
+            || scene.textures.len() >= limits.max_texture_array_layers as usize
             || LIGHT_SIZE > limits.max_texture_dimension_2d as usize
             || scene.lightmap.len() != LIGHT_SIZE * LIGHT_SIZE * 4
             || scene.textures.iter().any(|t| t.len() != TILE * TILE * 4)
@@ -65,7 +68,7 @@ impl GpuScene {
         let base = texture(
             TILE as u32,
             TILE as u32,
-            scene.textures.len() as u32,
+            (scene.textures.len() + 1) as u32,
             wgpu::TextureFormat::Rgba8UnormSrgb,
             "VTF diffuse array",
         );
@@ -94,6 +97,7 @@ impl GpuScene {
                 },
             );
         }
+        queue.write_texture(wgpu::ImageCopyTexture {texture:&base,mip_level:0,origin:wgpu::Origin3d{x:0,y:0,z:scene.textures.len() as u32},aspect:wgpu::TextureAspect::All}, &[255,190,45,255].repeat(TILE*TILE),wgpu::ImageDataLayout{offset:0,bytes_per_row:Some(TILE as u32*4),rows_per_image:Some(TILE as u32)},wgpu::Extent3d{width:TILE as u32,height:TILE as u32,depth_or_array_layers:1});
         let light = texture(
             LIGHT_SIZE as u32,
             LIGHT_SIZE as u32,
@@ -225,6 +229,9 @@ impl GpuScene {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         let result = Self {
+            pellets: device.create_buffer(&wgpu::BufferDescriptor{label:Some("bounded energy pellet meshes"),size:(64*8*16*6*std::mem::size_of::<MeshVertex>()) as u64,usage:wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false}),
+            pellet_count:std::cell::Cell::new(0),
+            pellet_layer:scene.textures.len() as u32,
             pipeline,
             translucent_pipeline,
             translucent: scene
@@ -253,6 +260,20 @@ impl GpuScene {
         };
         result.update(queue, Mat4::IDENTITY, &scene.origins);
         Ok(result)
+    }
+    pub fn update_pellets(&self, queue:&wgpu::Queue, balls:&[crate::entity::Pellet]) {
+        let mut vertices=Vec::new();
+        for ball in balls.iter().take(64) {
+            for y in 0..8 {for x in 0..16 {
+                let point=|x:f32,y:f32| {let a=x*std::f32::consts::TAU/16.;let b=y*std::f32::consts::PI/8.;Vec3::new(b.sin()*a.cos(),b.sin()*a.sin(),b.cos())};
+                for (a,b) in [(x,y),(x+1,y),(x+1,y+1),(x,y),(x+1,y+1),(x,y+1)] {
+                    let n=point(a as f32,b as f32);
+                    vertices.push(MeshVertex{position:(ball.position+n*ball.radius*0.65).to_array(),normal:n.to_array(),uv:[0.5;2],light_uv:[0.;2],layer:self.pellet_layer,model:0,unlit:1.});
+                }
+            }}
+        }
+        self.pellet_count.set(vertices.len() as u32);
+        if !vertices.is_empty() {queue.write_buffer(&self.pellets,0,bytemuck::cast_slice(&vertices));}
     }
     pub fn animation_vertices(&self, queue: &wgpu::Queue, scene: &Scene) {
         for a in &scene.animations {
@@ -310,6 +331,9 @@ impl GpuScene {
         pass.set_bind_group(0, &self.bind[view], &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.draw(0..self.count, 0..1);
+        pass.set_vertex_buffer(0,self.pellets.slice(..));
+        pass.draw(0..self.pellet_count.get(),0..1);
+        pass.set_vertex_buffer(0,self.vertices.slice(..));
         pass.set_pipeline(&self.translucent_pipeline);
         let matrix = self.matrices[view].get();
         let origins = self.origins.borrow();
