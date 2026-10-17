@@ -95,13 +95,17 @@ fn interactive_impl(
     if parity.is_some() {
         std::fs::create_dir_all(&parity_dir).map_err(|e| e.to_string())?;
     }
+    let pellet_demo = std::env::var("SOURCE_PELLET_DEMO").ok();
+    if let Some(dir) = &pellet_demo { std::fs::create_dir_all(dir).map_err(|e|e.to_string())?; }
+    let mut pellet_crossed = false;
+    let mut pellet_caught = false;
     let demo = std::env::var("SOURCE_DOOR_DEMO").ok();
     if let Some(dir) = &demo {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let vertices = crate::load(bytes)?;
     let events = EventLoop::new().map_err(|e| e.to_string())?;
-    let window=Arc::new(WindowBuilder::new().with_title("Source 1 exploration | click to look | WASD Space Ctrl crouch E use | Esc release | R reset | N noclip").with_inner_size(if demo.is_some() { winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 720)) } else { winit::dpi::Size::Logical(winit::dpi::LogicalSize::new(1100., 800.)) }).build(&events).map_err(|e|e.to_string())?);
+    let window=Arc::new(WindowBuilder::new().with_title("Source 1 exploration | click to look | WASD Space Ctrl crouch E use | Esc release | R reset | N noclip").with_inner_size(if demo.is_some() || pellet_demo.is_some() { winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 720)) } else { winit::dpi::Size::Logical(winit::dpi::LogicalSize::new(1100., 800.)) }).build(&events).map_err(|e|e.to_string())?);
     if surfaces.is_some() {
         window.set_title("Portal subset | click capture | LMB blue / RMB orange | WASD Space Ctrl E | Esc release R respawn N noclip");
     }
@@ -494,6 +498,28 @@ fn interactive_impl(
                                 }
                             }
                             accumulator=0.;
+                        } else if pellet_demo.is_some() {
+                            // Diagnostic portal placements, not a solved authored chamber route.
+                            // No projectile position/velocity is ever written by this driver.
+                            if frames==0 {
+                                world.portals=[Some(crate::portal::Portal::new(Vec3::new(-100.,318.,61.46),-Vec3::X,Vec3::Z)),Some(crate::portal::Portal::new(Vec3::new(-1360.,878.,-56.),Vec3::X,Vec3::Z))];
+                                player.position=Vec3::new(-200.,50.,66.);player.yaw=std::f32::consts::FRAC_PI_2;player.pitch=-0.25;
+                                runtime.input("energy_ball_launcher_lvl5","Disable","");
+                            }
+                            if frames==30 {runtime.input("energy_ball_launcher_lvl5","Enable","");}
+                            // One genuine 120 Hz step per video frame: quarter-speed playback.
+                            runtime.tick(1./120.,&mut player,&mut world);
+                            if !pellet_crossed && runtime.pellets.first().is_some_and(|p|p.position.x < -1000.) {
+                                pellet_crossed=true;println!("PELLET_DEMO portal-cross frame {frames} {:?}",runtime.pellets);
+                            }
+                            if pellet_crossed {
+                                player.position=Vec3::new(-1320.,660.,60.);player.yaw=1.40;player.pitch=-0.55;
+                            }
+                            if !pellet_caught && !runtime.is_enabled("ball_trap_10") {
+                                pellet_caught=true;println!("PELLET_DEMO receiver-output frame {frames}; launcher enabled {}; pellets {:?}",runtime.is_enabled("energy_ball_launcher_lvl5"),runtime.pellets);
+                            }
+                            println!("PELLET_DEMO frame {frames} {:?}",runtime.pellets);
+                            accumulator=0.;
                         } else if demo.is_some() {
                             if let Some(command) = match frames {
                                 0 => Some("Close"),
@@ -576,7 +602,7 @@ fn interactive_impl(
                             audio.listener(player.position+Vec3::Z*player.eye_height(),Vec3::new(player.yaw.sin(),-player.yaw.cos(),0.));
                             for event in runtime.sound_events.drain(..) {audio.play(event);}
                         }
-                        portal_game.sync_runtime(&mut runtime, &mut world);
+                        if pellet_demo.is_none() { portal_game.sync_runtime(&mut runtime, &mut world); }
                         if let Some(request) = runtime.change_level.take() {
                             println!("ChangeLevel detected: {} landmark {} player {:?}",request.map,request.landmark,player.position);
                             let prepared = root.as_ref().ok_or_else(|| "ChangeLevel needs --game asset root (legacy window cannot transition)".to_string()).and_then(|r|r.prepare(&request,&player,surfaces.is_some()));
@@ -638,7 +664,7 @@ fn interactive_impl(
                         // Scripted routes retain exact deterministic capture cameras.
                         // The interactive camera interpolates translation only; mouse
                         // look remains immediate and portal transfers snap atomically.
-                        let position = if smoke || parity.is_some() || portal_smoke {
+                        let position = if smoke || parity.is_some() || portal_smoke || pellet_demo.is_some() {
                             player.position
                         } else {
                             render_position.sample(&player, accumulator * 120.)
@@ -781,6 +807,11 @@ fn interactive_impl(
                                     Err(e) => eprintln!("screenshot failed: {}", e),
                                 }
                             }
+                        }
+                        if let Some(dir) = &pellet_demo {
+                            let path=format!("{dir}/frame_{frames:04}.png");
+                            capture_surface(&device,&queue,&frame.texture,config.width,config.height,config.format,&path).unwrap();
+                            if frames==359 {assert!(pellet_crossed && pellet_caught,"continuous pellet demo did not reach receiver");println!("PELLET_DEMO VERIFIED continuous launcher -> portal -> authored receiver");target.exit();}
                         }
                         if let Some(dir) = &demo {
                             let path = format!("{dir}/frame_{frames:04}.png");
