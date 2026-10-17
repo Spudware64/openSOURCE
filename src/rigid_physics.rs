@@ -336,7 +336,7 @@ impl RigidPhysics {
         let shape = Cuboid::new(vector(extent));
         let pose = Pose::from_translation(vector(start));
         let movement = vector(end - start);
-        let mut result = (1., Vec3::ZERO);
+        let mut result = world.carry_portal_rim(start, end, extent);
         for (_, collider) in self.colliders.iter() {
             if collider
                 .parent()
