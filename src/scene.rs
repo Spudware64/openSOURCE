@@ -32,6 +32,7 @@ pub struct AnimationInstance {
     offset: Vec3,
 }
 pub struct Scene {
+    pub pellet_template: Vec<MeshVertex>,
     pub scene_durations: std::collections::HashMap<u32, f32>,
     pub animations: Vec<AnimationInstance>,
     pub static_props: usize,
@@ -141,6 +142,24 @@ fn resample(m: &Material) -> Vec<u8> {
     out
 }
 impl Scene {
+    /// Original LOD0 geometry, including the authored glow meshes. Assets stay cached.
+    pub fn energy_ball(fs: &Assets) -> Result<(Vec<MeshVertex>, Vec<Vec<u8>>), String> {
+        let stem = "models/effects/combineball";
+        let model = crate::studio::decode(&fs.read(&format!("{stem}.mdl"))?, &fs.read(&format!("{stem}.vvd"))?, &fs.read(&format!("{stem}.dx90.vtx"))?)?;
+        let skin = model.skins.first().ok_or("combineball skin")?;
+        let mut textures = vec![];
+        for candidates in &model.materials {
+            let m = candidates.iter().find_map(|name| material(fs, name, 0).ok()).ok_or_else(|| format!("combineball material unavailable: {candidates:?}"))?;
+            textures.push(resample(&m));
+        }
+        let vertices = model.vertices.iter().map(|v| {
+            let names = &model.materials[skin[v.material]];
+            let has = |s:&str| names.iter().any(|n| n.ends_with(s));
+            let scroll = if has("comball_sphere") { [(-80f32).to_radians().cos(), (-80f32).to_radians().sin()] } else if has("comball_tape") {[-0.70710677,-0.70710677]} else {[0.;2]};
+            MeshVertex { position:v.position.to_array(), normal:v.normal.to_array(), uv:v.uv, light_uv:scroll, layer:skin[v.material] as u32, model:0, unlit:if has("comball_glow1") {-3.} else if has("comball_glow2") {-4.} else {-2.} }
+        }).collect();
+        Ok((vertices,textures))
+    }
     /// Original weapon-script viewmodel, posed once in authored idle coordinates.
     /// Kept separate from BSP geometry and its animation/upload hot path.
     pub fn weapon_viewmodel(fs: &Assets, weapon: &str) -> Result<Self, String> {
@@ -175,7 +194,7 @@ impl Scene {
         let skin = model.skins.first().ok_or("viewmodel skin")?;
         let vertices = posed.iter().map(|v| MeshVertex { position:v.position.to_array(), uv:v.uv, light_uv:[0.,0.], layer:skin[v.material] as u32, model:0, unlit:2., normal:v.normal.to_array() }).collect();
         let animation = AnimationInstance { name:"viewmodel".into(), range:0..posed.len(), initial:"idle".into(), solid:false, updated:true, last_pose:("idle".into(),0.), vertices:crate::animation::SkinMesh::new(&model.vertices), rotation:glam::Mat3::IDENTITY, offset:Vec3::ZERO, skeleton };
-        Ok(Self { scene_durations:Default::default(), animations:vec![animation], static_props:0, dynamic_props:0, skipped_dynamic_props:0, skipped_props:0, prop_triangles:0, displacement_triangles:0, displacement_faces:0, vertices, textures, lightmap:vec![255; LIGHT_SIZE*LIGHT_SIZE*4], filtered_faces:0, lightmapped_faces:0, warnings:vec![], origins:vec![Vec3::ZERO] })
+        Ok(Self { pellet_template:vec![], scene_durations:Default::default(), animations:vec![animation], static_props:0, dynamic_props:0, skipped_dynamic_props:0, skipped_props:0, prop_triangles:0, displacement_triangles:0, displacement_faces:0, vertices, textures, lightmap:vec![255; LIGHT_SIZE*LIGHT_SIZE*4], filtered_faces:0, lightmapped_faces:0, warnings:vec![], origins:vec![Vec3::ZERO] })
     }
 
     /// One-shot authored sequences return to idle; no synthetic sway or audio events.
@@ -910,7 +929,20 @@ impl Scene {
         } else {
             std::collections::HashMap::new()
         };
+        let mut pellet_template = vec![];
+        if entities.iter().any(|e| e.get("classname") == Some("point_energy_ball_launcher")) {
+            match Self::energy_ball(fs) {
+                Ok((mut mesh, images)) => {
+                    let offset = textures.len() as u32;
+                    for v in &mut mesh { v.layer += offset; }
+                    textures.extend(images);
+                    pellet_template = mesh;
+                }
+                Err(e) => warnings.push(format!("original energy ball unavailable (not rendered): {e}")),
+            }
+        }
         Ok(Self {
+            pellet_template,
             scene_durations,
             animations,
             static_props,

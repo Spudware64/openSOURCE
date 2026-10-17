@@ -4,7 +4,9 @@ use wgpu::util::DeviceExt;
 pub(crate) struct GpuScene {
     pellets: wgpu::Buffer,
     pellet_count: std::cell::Cell<u32>,
-    pellet_layer: u32,
+    pellet_template: Vec<MeshVertex>,
+    additive_pipeline: wgpu::RenderPipeline,
+    modulate_pipeline: wgpu::RenderPipeline,
     pipeline: wgpu::RenderPipeline,
     translucent_pipeline: wgpu::RenderPipeline,
     translucent: Vec<(u32, Vec3, usize)>,
@@ -25,7 +27,7 @@ impl GpuScene {
     ) -> Result<Self, String> {
         let limits = device.limits();
         if scene.textures.is_empty()
-            || scene.textures.len() >= limits.max_texture_array_layers as usize
+            || scene.textures.len() > limits.max_texture_array_layers as usize
             || LIGHT_SIZE > limits.max_texture_dimension_2d as usize
             || scene.lightmap.len() != LIGHT_SIZE * LIGHT_SIZE * 4
             || scene.textures.iter().any(|t| t.len() != TILE * TILE * 4)
@@ -68,7 +70,7 @@ impl GpuScene {
         let base = texture(
             TILE as u32,
             TILE as u32,
-            (scene.textures.len() + 1) as u32,
+            scene.textures.len() as u32,
             wgpu::TextureFormat::Rgba8UnormSrgb,
             "VTF diffuse array",
         );
@@ -97,7 +99,6 @@ impl GpuScene {
                 },
             );
         }
-        queue.write_texture(wgpu::ImageCopyTexture {texture:&base,mip_level:0,origin:wgpu::Origin3d{x:0,y:0,z:scene.textures.len() as u32},aspect:wgpu::TextureAspect::All}, &[255,190,45,255].repeat(TILE*TILE),wgpu::ImageDataLayout{offset:0,bytes_per_row:Some(TILE as u32*4),rows_per_image:Some(TILE as u32)},wgpu::Extent3d{width:TILE as u32,height:TILE as u32,depth_or_array_layers:1});
         let light = texture(
             LIGHT_SIZE as u32,
             LIGHT_SIZE as u32,
@@ -218,20 +219,24 @@ impl GpuScene {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        let make_pipeline = |blend: bool| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("textured Source 1"),layout:Some(&pipeline_layout),vertex:wgpu::VertexState{module:&shader,entry_point:"vs",buffers:&[wgpu::VertexBufferLayout{array_stride:std::mem::size_of::<MeshVertex>() as u64,step_mode:wgpu::VertexStepMode::Vertex,attributes:&wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x2,3=>Uint32,4=>Uint32,5=>Float32,6=>Float32x3]}]},fragment:Some(wgpu::FragmentState{module:&shader,entry_point:if blend {"fs_blend"} else {"fs"},targets:&[Some(wgpu::ColorTargetState{format,blend:if blend {Some(wgpu::BlendState::ALPHA_BLENDING)} else {None},write_mask:wgpu::ColorWrites::ALL})]}),primitive:wgpu::PrimitiveState{cull_mode:None,..Default::default()},depth_stencil:Some(wgpu::DepthStencilState{format:wgpu::TextureFormat::Depth32Float,depth_write_enabled:!blend,depth_compare:wgpu::CompareFunction::Less,stencil:Default::default(),bias:Default::default()}),multisample:Default::default(),multiview:None})
+        let make_pipeline = |mode: u8| { let blend = mode != 0;
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("textured Source 1"),layout:Some(&pipeline_layout),vertex:wgpu::VertexState{module:&shader,entry_point:"vs",buffers:&[wgpu::VertexBufferLayout{array_stride:std::mem::size_of::<MeshVertex>() as u64,step_mode:wgpu::VertexStepMode::Vertex,attributes:&wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x2,3=>Uint32,4=>Uint32,5=>Float32,6=>Float32x3]}]},fragment:Some(wgpu::FragmentState{module:&shader,entry_point:if mode == 3 {"fs_mod"} else if mode == 2 {"fs_add"} else if blend {"fs_blend"} else {"fs"},targets:&[Some(wgpu::ColorTargetState{format,blend:if mode == 3 {Some(wgpu::BlendState {color:wgpu::BlendComponent {src_factor:wgpu::BlendFactor::Dst,dst_factor:wgpu::BlendFactor::Zero,operation:wgpu::BlendOperation::Add},alpha:wgpu::BlendComponent::OVER})} else if mode == 2 {Some(wgpu::BlendState { color:wgpu::BlendComponent {src_factor:wgpu::BlendFactor::SrcAlpha,dst_factor:wgpu::BlendFactor::One,operation:wgpu::BlendOperation::Add},alpha:wgpu::BlendComponent::OVER })} else if blend {Some(wgpu::BlendState::ALPHA_BLENDING)} else {None},write_mask:wgpu::ColorWrites::ALL})]}),primitive:wgpu::PrimitiveState{cull_mode:None,..Default::default()},depth_stencil:Some(wgpu::DepthStencilState{format:wgpu::TextureFormat::Depth32Float,depth_write_enabled:!blend,depth_compare:wgpu::CompareFunction::Less,stencil:Default::default(),bias:Default::default()}),multisample:Default::default(),multiview:None})
         };
-        let pipeline = make_pipeline(false);
-        let translucent_pipeline = make_pipeline(true);
+        let pipeline = make_pipeline(0);
+        let translucent_pipeline = make_pipeline(1);
+        let additive_pipeline = make_pipeline(2);
+        let modulate_pipeline = make_pipeline(3);
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("BSP textured vertices"),
             contents: bytemuck::cast_slice(&scene.vertices),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         let result = Self {
-            pellets: device.create_buffer(&wgpu::BufferDescriptor{label:Some("bounded energy pellet meshes"),size:(64*8*16*6*std::mem::size_of::<MeshVertex>()) as u64,usage:wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false}),
+            pellets: device.create_buffer(&wgpu::BufferDescriptor{label:Some("bounded energy pellet meshes"),size:(64*scene.pellet_template.len().max(1)*std::mem::size_of::<MeshVertex>()) as u64,usage:wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false}),
             pellet_count:std::cell::Cell::new(0),
-            pellet_layer:scene.textures.len() as u32,
+            pellet_template:scene.pellet_template.clone(),
+            additive_pipeline,
+            modulate_pipeline,
             pipeline,
             translucent_pipeline,
             translucent: scene
@@ -262,15 +267,18 @@ impl GpuScene {
         Ok(result)
     }
     pub fn update_pellets(&self, queue:&wgpu::Queue, balls:&[crate::entity::Pellet]) {
-        let mut vertices=Vec::new();
+        let mut vertices=Vec::with_capacity(balls.len().min(64)*self.pellet_template.len());
         for ball in balls.iter().take(64) {
-            for y in 0..8 {for x in 0..16 {
-                let point=|x:f32,y:f32| {let a=x*std::f32::consts::TAU/16.;let b=y*std::f32::consts::PI/8.;Vec3::new(b.sin()*a.cos(),b.sin()*a.sin(),b.cos())};
-                for (a,b) in [(x,y),(x+1,y),(x+1,y+1),(x,y),(x+1,y+1),(x,y+1)] {
-                    let n=point(a as f32,b as f32);
-                    vertices.push(MeshVertex{position:(ball.position+n*ball.radius*0.65).to_array(),normal:n.to_array(),uv:[0.5;2],light_uv:[0.;2],layer:self.pellet_layer,model:0,unlit:1.});
-                }
-            }}
+            let spin = glam::Mat3::from_rotation_z(-ball.remaining * 2.);
+            for original in &self.pellet_template {
+                let mut v = *original;
+                // Original model sphere radius is 12 Source units; preserve its glow extents.
+                v.position=(ball.position + spin * Vec3::from(v.position) * (ball.radius/12.)).to_array();
+                v.normal=(spin * Vec3::from(v.normal)).to_array();
+                v.uv[0] -= ball.remaining * v.light_uv[0];
+                v.uv[1] -= ball.remaining * v.light_uv[1];
+                vertices.push(v);
+            }
         }
         self.pellet_count.set(vertices.len() as u32);
         if !vertices.is_empty() {queue.write_buffer(&self.pellets,0,bytemuck::cast_slice(&vertices));}
@@ -331,6 +339,10 @@ impl GpuScene {
         pass.set_bind_group(0, &self.bind[view], &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.draw(0..self.count, 0..1);
+        pass.set_pipeline(&self.modulate_pipeline);
+        pass.set_vertex_buffer(0,self.pellets.slice(..));
+        pass.draw(0..self.pellet_count.get(),0..1);
+        pass.set_pipeline(&self.additive_pipeline);
         pass.set_vertex_buffer(0,self.pellets.slice(..));
         pass.draw(0..self.pellet_count.get(),0..1);
         pass.set_vertex_buffer(0,self.vertices.slice(..));

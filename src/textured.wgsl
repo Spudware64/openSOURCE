@@ -33,3 +33,16 @@ fn shade(o:Output, blended:bool)->vec4<f32> {
 }
 @fragment fn fs(o:Output)->@location(0) vec4<f32> {return shade(o,false);}
 @fragment fn fs_blend(o:Output)->@location(0) vec4<f32> {return shade(o,true);}
+// Original combineball UnlitGeneric additive layers and Modulate MOD2X shell.
+@fragment fn fs_add(o:Output)->@location(0) vec4<f32> {
+ if o.unlit == -3. || dot(camera.clip,vec4<f32>(o.world,1.))<0. {discard;}
+ let t=textureSample(base,repeat_sampler,o.uv,i32(o.layer));
+ return vec4<f32>(t.rgb*select(1.,0.25,o.unlit == -4.),t.a);
+}
+@fragment fn fs_mod(o:Output)->@location(0) vec4<f32> {
+ if o.unlit != -3. || dot(camera.clip,vec4<f32>(o.world,1.))<0. {discard;}
+ // Modulate uses linear texture reads: neutral authored 128 must not darken a square.
+ let t=textureSample(base,repeat_sampler,o.uv,i32(o.layer));
+ let raw=select(12.92*t.rgb,1.055*pow(t.rgb,vec3<f32>(1./2.4))-vec3<f32>(0.055),t.rgb>vec3<f32>(0.0031308));
+ return vec4<f32>(mix(vec3<f32>(1.),2.*raw,t.a),1.);
+}
