@@ -86,7 +86,17 @@ impl ChangeLevel {
         Ok(position + destination - self.source)
     }
 }
+#[derive(Clone, Debug)]
+pub struct Pellet {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub radius: f32,
+    pub remaining: f32,
+    launcher: usize,
+}
 pub struct Runtime {
+    pub pellets: Vec<Pellet>,
+    pellet_due: HashMap<usize, f32>,
     pub sound_events: Vec<crate::audio::Event>,
     audio_started: bool,
     physics: crate::rigid_physics::RigidPhysics,
@@ -202,6 +212,8 @@ impl Runtime {
             return Err("physics population limit (128 authored bodies)".into());
         }
         let mut r = Self {
+            pellets: vec![],
+            pellet_due: HashMap::new(),
             physics: Default::default(),
             sound_events: vec![],
             audio_started: false,
@@ -274,7 +286,7 @@ impl Runtime {
                 }
                 r.origins[m] = origin;
             }
-            let enabled = e.get("StartDisabled") != Some("1");
+            let enabled = e.get("StartDisabled") != Some("1") && !(class == "point_energy_ball_launcher" && flags & 4096 != 0);
             if class == "func_brush" {
                 if let Some(m) = model {
                     r.visible[m] = enabled;
@@ -1153,6 +1165,65 @@ impl Runtime {
             self.portal_inventory
         );
     }
+    fn tick_pellets(&mut self, dt: f32, world: &World) {
+        let number = |e: &Entity, key: &str, default: f32| e.get(key).and_then(|v| v.parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(default);
+        for id in 0..self.states.len() {
+            let s = &self.states[id];
+            if s.entity.get("classname") != Some("point_energy_ball_launcher") || !s.enabled || s.killed || self.pellets.iter().any(|p| p.launcher == id) || self.pellet_due.get(&id).is_some_and(|t| *t > self.time) {continue;}
+            if self.pellets.len() >= 64 {break;}
+            let rotation = crate::models::rotation(vector(s.entity.get("angles").unwrap_or("0 0 0")).unwrap_or(Vec3::ZERO));
+            self.pellets.push(Pellet {position:s.entity.origin().unwrap_or(Vec3::ZERO), velocity:rotation * Vec3::X * number(&s.entity,"minspeed",200.).clamp(1.,4000.), radius:number(&s.entity,"ballradius",12.).clamp(1.,32.), remaining:number(&s.entity,"BallLifetime",16.).clamp(0.1,120.),launcher:id});
+            self.sound_events.push(crate::audio::Event::one(self.time,"NPC_CombineBall.Launch",Some(self.pellets.last().unwrap().position)));
+            self.fire(id,"OnPostSpawnBall");
+        }
+        let mut survivors=Vec::new();
+        for mut ball in std::mem::take(&mut self.pellets) {
+            ball.remaining-=dt;
+            let mut alive=ball.remaining>0.;
+            let mut left=dt;
+            for _ in 0..8 {
+                if !alive || left<=0.000001 {break;}
+                let start=ball.position; let end=start+ball.velocity*left;
+                let (fraction,normal)=world.trace_cuboid(start,end,Vec3::splat(ball.radius));
+                let mut portal_hit=None;
+                if let [Some(a),Some(b)]=world.portals {
+                    for (src,dst) in [(a,b),(b,a)] {
+                        let d0=(start-src.center).dot(src.normal);let d1=(end-src.center).dot(src.normal);
+                        if d0>0. && d1<=0. {
+                            let t=d0/(d0-d1);let q=start.lerp(end,t)-src.center;
+                            if q.dot(src.right()).abs()+ball.radius<crate::portal::HALF_WIDTH && q.dot(src.up).abs()+ball.radius<crate::portal::HALF_HEIGHT && t<=fraction {portal_hit=Some((t,src,dst));}
+                        }
+                    }
+                }
+                let travel=portal_hit.map(|v|v.0).unwrap_or(fraction);
+                let stop=start.lerp(end,travel);
+                // Authored catchers are filtered trigger volumes, not a special prop class.
+                let catcher=(0..self.states.len()).find(|&id| {
+                    let s=&self.states[id];
+                    if s.killed || !s.enabled || s.entity.get("classname")!=Some("trigger_multiple") {return false;}
+                    let Some(filter)=s.entity.get("filtername") else {return false;};
+                    if !self.states.iter().any(|f|f.entity.get("targetname")==Some(filter) && f.entity.get("classname")==Some("filter_combineball_type")) {return false;}
+                    let Some(m)=s.model else {return false;};
+                    let lo=self.origins[m]+s.bounds.0-Vec3::splat(ball.radius);let hi=self.origins[m]+s.bounds.1+Vec3::splat(ball.radius);
+                    let delta=stop-start;let mut near=0f32;let mut far=1f32;
+                    for axis in 0..3 {if delta[axis].abs()<1e-6 {if start[axis]<lo[axis] || start[axis]>hi[axis] {return false;}} else {let a=(lo[axis]-start[axis])/delta[axis];let b=(hi[axis]-start[axis])/delta[axis];near=near.max(a.min(b));far=far.min(a.max(b));}}
+                    near<=far
+                });
+                if let Some(id)=catcher {self.fire(id,"OnStartTouch");self.fire(id,"OnTrigger");alive=false;break;}
+                if let Some((t,src,dst))=portal_hit {
+                    ball.position=src.map_point(dst,start.lerp(end,t))+dst.normal*0.1;
+                    ball.velocity=src.map_vector(dst,ball.velocity);
+                    ball.remaining=ball.remaining.max(number(&self.states[ball.launcher].entity,"MinLifeAfterPortal",0.));
+                    left*=1.-t;
+                } else {
+                    ball.position=stop;
+                    if fraction<1. {if self.sound_events.len()<256 {self.sound_events.push(crate::audio::Event::one(self.time,"NPC_CombineBall.Impact",Some(stop)));} ball.position+=normal*0.1;ball.velocity-=2.*ball.velocity.dot(normal)*normal;left*=1.-fraction;} else {left=0.;}
+                }
+            }
+            if alive {survivors.push(ball);} else {let delay=number(&self.states[ball.launcher].entity,"ballrespawntime",2.).max(0.);self.pellet_due.insert(ball.launcher,self.time+delay);}
+        }
+        self.pellets=survivors;
+    }
     pub fn tick(&mut self, dt: f32, player: &mut Player, world: &mut World) {
         let _profile = crate::frame_profile::scope(10);
         crate::frame_profile::count(0, 1);
@@ -1160,6 +1231,7 @@ impl Runtime {
             return;
         }
         self.time += dt;
+        self.tick_pellets(dt, world);
         if !self.audio_started {
             self.audio_started=true;
             for id in 0..self.states.len() {
