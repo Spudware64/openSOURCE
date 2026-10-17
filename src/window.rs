@@ -95,6 +95,13 @@ fn interactive_impl(
     if parity.is_some() {
         std::fs::create_dir_all(&parity_dir).map_err(|e| e.to_string())?;
     }
+    // Normal chamber recording: authored spawn and outputs, ordinary walking only.
+    let normal_capture = std::env::var("SOURCE_NORMAL_CAPTURE").ok();
+    if let Some(dir) = &normal_capture { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+    let mut normal_encoder = if let Some(dir) = &normal_capture {
+        Some(std::process::Command::new("ffmpeg").args(["-y","-loglevel","error","-f","image2pipe","-framerate","30","-i","pipe:0","-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p","-movflags","+faststart", &format!("{dir}/../chamber04-normal.mp4")]).stdin(std::process::Stdio::piped()).spawn().map_err(|e|e.to_string())?)
+    } else { None };
+    let mut normal_launched = false;
     let pellet_demo = std::env::var("SOURCE_PELLET_DEMO").ok();
     if let Some(dir) = &pellet_demo { std::fs::create_dir_all(dir).map_err(|e|e.to_string())?; }
     let mut pellet_crossed = false;
@@ -105,7 +112,7 @@ fn interactive_impl(
     }
     let vertices = crate::load(bytes)?;
     let events = EventLoop::new().map_err(|e| e.to_string())?;
-    let window=Arc::new(WindowBuilder::new().with_title("Source 1 exploration | click to look | WASD Space Ctrl crouch E use | Esc release | R reset | N noclip").with_inner_size(if demo.is_some() || pellet_demo.is_some() { winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 720)) } else { winit::dpi::Size::Logical(winit::dpi::LogicalSize::new(1100., 800.)) }).build(&events).map_err(|e|e.to_string())?);
+    let window=Arc::new(WindowBuilder::new().with_title("Source 1 exploration | click to look | WASD Space Ctrl crouch E use | Esc release | R reset | N noclip").with_inner_size(if demo.is_some() || pellet_demo.is_some() || normal_capture.is_some() { winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(1024, 720)) } else { winit::dpi::Size::Logical(winit::dpi::LogicalSize::new(1100., 800.)) }).build(&events).map_err(|e|e.to_string())?);
     if surfaces.is_some() {
         window.set_title("Portal subset | click capture | LMB blue / RMB orange | WASD Space Ctrl E | Esc release R respawn N noclip");
     }
@@ -498,6 +505,31 @@ fn interactive_impl(
                                 }
                             }
                             accumulator=0.;
+                        } else if normal_capture.is_some() {
+                            // Four 120 Hz gameplay steps per 30 fps presented frame.
+                            // Walk out of the real entry and across the authored launcher trigger.
+                            for _ in 0..4 {
+                                let walk = if player.position.x < -370. && frames < 150 {
+                                    player.yaw = 0.;
+                                    Vec3::X
+                                } else {
+                                    let eye = player.position + Vec3::Z * player.eye_height();
+                                    let target = if frames < 360 { Vec3::new(-170.,318.,61.46) } else { Vec3::new(-1210.,884.,-55.) };
+                                    let d = target-eye;
+                                    let desired = d.y.atan2(d.x);
+                                    let delta = (desired-player.yaw).sin().atan2((desired-player.yaw).cos());
+                                    player.yaw += delta.clamp(-0.012,0.012);
+                                    let pitch = d.z.atan2(d.truncate().length());
+                                    player.pitch += (pitch-player.pitch).clamp(-0.008,0.008);
+                                    Vec3::ZERO
+                                };
+                                runtime.tick(1./120., &mut player, &mut world);
+                                portal_game.sync_runtime(&mut runtime,&mut world);
+                                player.step(&world,walk,false,1./120.);
+                                if !runtime.pellets.is_empty() { normal_launched=true; }
+                            }
+                            if frames%30==0 {println!("NORMAL_CAPTURE frame {frames} player {:?} pellets {:?}",player.position,runtime.pellets);}
+                            accumulator=0.;
                         } else if pellet_demo.is_some() {
                             // Diagnostic portal placements, not a solved authored chamber route.
                             // No projectile position/velocity is ever written by this driver.
@@ -664,7 +696,7 @@ fn interactive_impl(
                         // Scripted routes retain exact deterministic capture cameras.
                         // The interactive camera interpolates translation only; mouse
                         // look remains immediate and portal transfers snap atomically.
-                        let position = if smoke || parity.is_some() || portal_smoke || pellet_demo.is_some() {
+                        let position = if smoke || parity.is_some() || portal_smoke || pellet_demo.is_some() || normal_capture.is_some() {
                             player.position
                         } else {
                             render_position.sample(&player, accumulator * 120.)
@@ -806,6 +838,19 @@ fn interactive_impl(
                                     Ok(()) => println!("surface screenshot: {}", path),
                                     Err(e) => eprintln!("screenshot failed: {}", e),
                                 }
+                            }
+                        }
+                        if let Some(dir) = &normal_capture {
+                            use std::io::Write;
+                            let path=format!("{dir}/current.png");
+                            capture_surface(&device,&queue,&frame.texture,config.width,config.height,config.format,&path).unwrap();
+                            let encoder=normal_encoder.as_mut().unwrap();
+                            encoder.stdin.as_mut().unwrap().write_all(&std::fs::read(&path).unwrap()).unwrap();
+                            if frames==449 {
+                                drop(encoder.stdin.take());
+                                assert!(encoder.wait().unwrap().success(),"video encoding failed");
+                                assert!(normal_launched,"authored trigger never launched pellet");
+                                println!("NORMAL_CAPTURE complete: authored spawn, normal walking, natural launch; no puzzle-solve claim");target.exit();
                             }
                         }
                         if let Some(dir) = &pellet_demo {
