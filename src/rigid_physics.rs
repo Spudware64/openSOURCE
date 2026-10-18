@@ -66,11 +66,66 @@ pub(crate) struct RigidPhysics {
     handles: HashMap<usize, RigidBodyHandle>,
     geometry: Vec<Vec<Plane>>,
     scenery: Vec<Option<ColliderHandle>>,
+    meshes: Vec<(usize, ColliderHandle)>,
     #[cfg(test)]
     hull_builds: usize,
     accumulator: f32,
 }
 impl RigidPhysics {
+    // One immutable posed triangle mesh per rigid, single-clip MDL instance.
+    // Parent motion updates its collider transform, not BSP hulls or mesh data.
+    pub fn bind_scene(&mut self, scene: &crate::scene::Scene, dynamic_models: &[usize]) {
+        for (_, h) in self.meshes.drain(..) {
+            self.colliders
+                .remove(h, &mut self.islands, &mut self.bodies, &mut self.soft, true);
+        }
+        for instance in &scene.animations {
+            if !instance.solid || instance.skeleton.clips.len() != 1 {
+                continue;
+            }
+            let vertices = &scene.vertices[instance.range.clone()];
+            if vertices.is_empty() || dynamic_models.contains(&(vertices[0].model as usize)) {
+                continue;
+            }
+            let points = vertices
+                .iter()
+                .map(|v| vector(Vec3::from(v.position)))
+                .collect();
+            let triangles = (0..vertices.len() as u32 / 3)
+                .map(|i| [i * 3, i * 3 + 1, i * 3 + 2])
+                .collect();
+            if let Ok(builder) = ColliderBuilder::trimesh(points, triangles) {
+                let model = vertices[0].model as usize;
+                let h = self.colliders.insert(
+                    builder
+                        .translation(vector(scene.origins[model]))
+                        .friction(0.6)
+                        .build(),
+                );
+                self.meshes.push((model, h));
+            }
+        }
+    }
+    pub fn sync_mesh_poses(
+        &mut self,
+        origins: &[Vec3],
+        rotations: &[glam::Mat3],
+        visible: &[bool],
+    ) {
+        for &(model, h) in &self.meshes {
+            if model >= origins.len() {
+                continue;
+            }
+            let c = &mut self.colliders[h];
+            c.set_enabled(visible.get(model).copied().unwrap_or(false));
+            let q = glam::Quat::from_mat3(&rotations[model]);
+            c.set_position(Pose::from_parts(
+                vector(origins[model]),
+                Rotation::from_xyzw(q.x, q.y, q.z, q.w),
+            ));
+        }
+    }
+
     pub fn sync_world(&mut self, brushes: &[Vec<Plane>]) {
         // Brush slots are the World's stable portal/contact identifiers. Keep
         // unchanged shapes and handles; never clone or rebuild the whole scene.

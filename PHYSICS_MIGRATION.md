@@ -117,3 +117,25 @@ No physical-input/native-GPU/Windows acceptance was performed for this change.
 - Known baseline blocked_maker_does_not_embed_or_fire_spawn_output remains
   excluded above (historically left 1, expected 2); this is not a full-suite-green
   claim.
+
+## Rigid posed MDL contact surfaces
+
+Free props and carry casts now include the actual posed triangle surfaces of
+solid single-clip MDL instances, excluding prop_physics models (which already
+own dynamic colliders). Meshes are built once at scene binding. Parent-resolved
+origins/rotations and visibility update collider transforms each tick; unchanged
+BSP hull caching remains intact. These are moved scenery colliders, not
+velocity-aware kinematic solver bodies, PHY shapes, or general skeletal collision.
+
+The real testchmb_a_00 second-room button previously let the cube rest on the
+invisible func_door BSP top at Z=584.03125, below the rendered red plate. With
+posed mesh contacts its mesh bottom settles at Z=590.2284, matching the posed
+plate within contact skin. A regression failed on the former height, then passed
+with the mesh collider. Two actual-map tests cover 120-tick stable rest, actual
+Rapier centre/render-bound agreement, authored exit opening, both player/cube
+ownership orders, and normal use-player repick causing authored exit closure.
+Drops/observer approaches are explicitly staged; this is not native input-only
+or Windows acceptance. No trigger outputs were forced and no original assets
+were modified. The apparent extra-cube/dropper behavior in the video is not
+claimed fixed. Focused runtime/portal/rigid/interactions tests passed with the
+known blocked-maker exclusion; the unrelated portal-gun baseline was not run.

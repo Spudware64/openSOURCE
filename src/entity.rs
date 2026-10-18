@@ -130,6 +130,7 @@ impl Runtime {
 
     pub fn bind_animations(&mut self, scene: &crate::scene::Scene) {
         self.bind_scene_timing(&scene.scene_durations);
+        self.physics.bind_scene(scene, &self.states.iter().filter(|s| s.velocity.is_some()).filter_map(|s| s.model).collect::<Vec<_>>());
         let mut bounds =
             vec![(Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)); self.origins.len()];
         for v in &scene.vertices {
@@ -1282,6 +1283,8 @@ impl Runtime {
         self.physics.retain(&ids);
         {
             self.physics.sync_world(&world.brushes);
+            let (origins, rotations) = self.model_transforms();
+            self.physics.sync_mesh_poses(&origins, &rotations, &self.visible);
             for &id in &ids {
                 let s = &self.states[id];
                 self.physics.sync_body(id, self.origins[s.model.unwrap()] + (s.bounds.0+s.bounds.1)*0.5, (s.bounds.1-s.bounds.0)*0.5, s.velocity.unwrap());
