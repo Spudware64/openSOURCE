@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     entity::{parse_entities, Runtime},
     play::{Player, World},
 };
@@ -25,7 +25,7 @@ fn authored_changelevel_requires_input_and_preserves_landmark_offset() {
         .expect("authored input must request transition");
     assert_eq!(request.map, "testchmb_a_01");
     let next = map(&request.map);
-    let entities = parse_entities(portal_bsp_viewer::lump(&next, 0, 1).unwrap()).unwrap();
+    let entities = parse_entities(opensource::lump(&next, 0, 1).unwrap()).unwrap();
     let pos = request.arrival(&entities, p.position).unwrap();
     assert!(pos.distance(Vec3::new(909., 70.18, -243.44)) < 0.01);
 }
@@ -37,7 +37,7 @@ fn retained_game_root_prepares_fresh_map_and_resets_runtime() {
     let mut p = Player::new(w.spawn, w.yaw);
     r.input("a00-a01_change_level_a01_02", "ChangeLevel", "");
     r.tick(0.01, &mut p, &mut w);
-    let root = portal_bsp_viewer::session::GameRoot::new("../portal-original/portal", 2).unwrap();
+    let root = opensource::session::GameRoot::new("../portal-original/portal", 2).unwrap();
     let next = root
         .prepare(&r.change_level.take().unwrap(), &p, true)
         .unwrap();
@@ -53,8 +53,8 @@ fn cleanser_removes_real_cube_collision_and_fires_authored_output_once() {
     let mut r = Runtime::new(&b).unwrap();
     let mut w = World::parse(&b).unwrap();
     r.portal_events = Some(vec![]);
-    let es = parse_entities(portal_bsp_viewer::lump(&b, 0, 1).unwrap()).unwrap();
-    let m = portal_bsp_viewer::lump(&b, 14, 48).unwrap().len() / 48
+    let es = parse_entities(opensource::lump(&b, 0, 1).unwrap()).unwrap();
+    let m = opensource::lump(&b, 14, 48).unwrap().len() / 48
         + es.iter()
             .filter(|e| e.get("classname") == Some("prop_physics"))
             .position(|e| e.get("targetname") == Some("box"))
@@ -68,10 +68,10 @@ fn cleanser_removes_real_cube_collision_and_fires_authored_output_once() {
         !r.is_enabled("show_drop_hudhint"),
         "authored OnDissolveBox must disable the HUD hint"
     );
-    let mut game = portal_bsp_viewer::portal::Game::load(&b).unwrap();
+    let mut game = opensource::portal::Game::load(&b).unwrap();
     game.place(
         0,
-        portal_bsp_viewer::portal::Portal::new(Vec3::ZERO, Vec3::X, Vec3::Z),
+        opensource::portal::Portal::new(Vec3::ZERO, Vec3::X, Vec3::Z),
     );
     p.position = Vec3::new(-1264., -864., 144.);
     r.tick(1. / 120., &mut p, &mut w);
@@ -83,9 +83,9 @@ fn cleanser_removes_real_cube_collision_and_fires_authored_output_once() {
 #[test]
 fn final_elevator_authored_touch_track_output_requests_next_map() {
     let b = map("testchmb_a_00");
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
-    let scene = portal_bsp_viewer::scene::Scene::load(&b, &fs).unwrap();
+    let scene = opensource::scene::Scene::load(&b, &fs).unwrap();
     let mut r = Runtime::new(&b).unwrap();
     let mut w = World::parse(&b).unwrap();
     r.bind_animations(&scene);
@@ -115,7 +115,7 @@ fn final_elevator_authored_touch_track_output_requests_next_map() {
         p.position
     );
     let request = r.change_level.take().unwrap();
-    let root = portal_bsp_viewer::session::GameRoot::new("../portal-original/portal", 2).unwrap();
+    let root = opensource::session::GameRoot::new("../portal-original/portal", 2).unwrap();
     let mut next = root.prepare(&request, &p, true).unwrap();
     next.runtime
         .enter_transition(&r, next.player.position - p.position);
@@ -165,8 +165,8 @@ fn all_supplied_map_links_and_cleanser_brush_bounds_are_exercised() {
     let mut links = 0;
     let mut cleansers = 0;
     for (name, bytes) in &maps {
-        let es = parse_entities(portal_bsp_viewer::lump(bytes, 0, 1).unwrap()).unwrap();
-        let bounds: Vec<_> = portal_bsp_viewer::lump(bytes, 14, 48)
+        let es = parse_entities(opensource::lump(bytes, 0, 1).unwrap()).unwrap();
+        let bounds: Vec<_> = opensource::lump(bytes, 14, 48)
             .unwrap()
             .chunks_exact(48)
             .map(|b| {
@@ -179,7 +179,7 @@ fn all_supplied_map_links_and_cleanser_brush_bounds_are_exercised() {
                 let target = e.get("map").unwrap();
                 let landmark = e.get("landmark").unwrap();
                 let next =
-                    parse_entities(portal_bsp_viewer::lump(&maps[target], 0, 1).unwrap()).unwrap();
+                    parse_entities(opensource::lump(&maps[target], 0, 1).unwrap()).unwrap();
                 let source = es
                     .iter()
                     .find(|x| {
@@ -189,7 +189,7 @@ fn all_supplied_map_links_and_cleanser_brush_bounds_are_exercised() {
                     .unwrap()
                     .origin()
                     .unwrap();
-                let req = portal_bsp_viewer::entity::ChangeLevel {
+                let req = opensource::entity::ChangeLevel {
                     map: target.into(),
                     landmark: landmark.into(),
                     source,
@@ -279,8 +279,8 @@ fn touch_changelevel_uses_trigger_volume_without_player_spawnflag() {
 }
 #[test]
 fn unsafe_map_transition_rejects_before_asset_lookup() {
-    let root = portal_bsp_viewer::session::GameRoot::new("../portal-original/portal", 1).unwrap();
-    let req = portal_bsp_viewer::entity::ChangeLevel {
+    let root = opensource::session::GameRoot::new("../portal-original/portal", 1).unwrap();
+    let req = opensource::entity::ChangeLevel {
         map: "../escape".into(),
         landmark: "x".into(),
         source: Vec3::ZERO,

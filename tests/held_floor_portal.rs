@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     entity::{parse_entities, Runtime},
     play::{Plane, Player, World},
     portal::Portal,
@@ -7,7 +7,7 @@ use portal_bsp_viewer::{
 
 #[test]
 fn actual_chamber00_floor_portal_keeps_held_cube_above_backing_floor() {
-    use portal_bsp_viewer::{
+    use opensource::{
         assets::Assets,
         portal::{Game, Surfaces},
         scene::Scene,

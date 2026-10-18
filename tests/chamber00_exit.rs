@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     assets::Assets,
     entity::Runtime,
     play::{Player, World},
@@ -17,7 +17,7 @@ fn authored_second_room_open_gate_crosses_fitted_blue2() {
     w.bind_scene(&scene);
     r.bind_animations(&scene);
     let mut g = Game::load(&b).unwrap();
-    g.automatic_surfaces = Some(portal_bsp_viewer::portal::Surfaces::load(&b, &fs).unwrap());
+    g.automatic_surfaces = Some(opensource::portal::Surfaces::load(&b, &fs).unwrap());
     let mut p = Player::spawn(&w);
     for _ in 0..120 {
         r.tick(1. / 120., &mut p, &mut w);
@@ -107,7 +107,7 @@ fn authored_second_room_open_gate_crosses_fitted_blue2() {
     );
     if let Ok(path) = std::env::var("BLUE2_CAPTURE") {
         scene.origins = r.origins.clone();
-        let pixels = portal_bsp_viewer::render_portal_scene(
+        let pixels = opensource::render_portal_scene(
             &scene,
             1024,
             768,
@@ -137,7 +137,7 @@ fn authored_second_room_open_gate_crosses_fitted_blue2() {
 
 #[test]
 fn authored_placement_uses_supporting_face_and_preserves_aligned_portals() {
-    use portal_bsp_viewer::portal::{Portal, Surfaces};
+    use opensource::portal::{Portal, Surfaces};
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
     let surfaces = Surfaces::load(&b, &fs).unwrap();

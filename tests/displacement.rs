@@ -1,11 +1,11 @@
 use glam::Vec3;
-use portal_bsp_viewer::displacement::tessellate;
+use opensource::displacement::tessellate;
 #[test]
 fn real_map_uses_displaced_positions_not_flat_quads() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_15.bsp").unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
-    let scene = portal_bsp_viewer::scene::Scene::load(&b, &fs).unwrap();
+    let scene = opensource::scene::Scene::load(&b, &fs).unwrap();
     assert_eq!(scene.displacement_triangles, 2048);
     assert_eq!(scene.displacement_faces, 4);
     // Actual DISP_VERTS[1], independently evaluated from the source grid:

@@ -1,4 +1,4 @@
-use portal_bsp_viewer::*;
+use opensource::*;
 #[test]
 fn real_background_geometry() {
     let b = std::fs::read("../portal-original/portal/maps/background2.bsp").unwrap();

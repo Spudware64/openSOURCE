@@ -6,7 +6,7 @@ From the repository directory, replace the game directory with your existing Por
 ```powershell
 $env:SOURCE_CONTROLLER_TRACE = Join-Path $env:USERPROFILE ("controller-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".csv")
 Write-Host "Trace output: $env:SOURCE_CONTROLLER_TRACE"
-.\target\release\portal-bsp-viewer.exe --game "C:\Program Files (x86)\Steam\steamapps\common\Portal\portal" --map maps/testchmb_a_00.bsp --play
+.\target\release\openSOURCE.exe --game "C:\Program Files (x86)\Steam\steamapps\common\Portal\portal" --map maps/testchmb_a_00.bsp --play
 Remove-Item Env:SOURCE_CONTROLLER_TRACE
 ```
 

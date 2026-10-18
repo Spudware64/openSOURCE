@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{assets::Assets,entity::Runtime,play::{Player,World},scene::Scene};
+use opensource::{assets::Assets,entity::Runtime,play::{Player,World},scene::Scene};
 #[test]
 fn authored_mapspawn_force_spawns_all_three_bodies_without_space_check_flag(){
  let b=std::fs::read("../portal-original/portal/maps/testchmb_a_02.bsp").unwrap();let fs=Assets::from_game("../portal-original/portal",Some(&b)).unwrap();let s=Scene::load(&b,&fs).unwrap();let mut r=Runtime::new(&b).unwrap();r.bind_animations(&s);let mut w=World::parse(&b).unwrap();w.bind_scene(&s);w.update_models(&r.origins,&r.visible);let mut p=Player::new(w.spawn,w.yaw);

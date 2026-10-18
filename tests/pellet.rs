@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{entity::{Runtime,parse_entities},play::{Player,World},portal::Portal};
+use opensource::{entity::{Runtime,parse_entities},play::{Player,World},portal::Portal};
 fn fixture()->(Runtime,World,Player) {
  let e=parse_entities(br#"{"classname" "point_energy_ball_launcher" "targetname" "launcher" "origin" "50 0 0" "angles" "0 180 0" "minspeed" "200" "BallLifetime" "1" "ballrespawntime" "0.2"}"#).unwrap();
  (Runtime::from_entities(e,vec![]).unwrap(),World::from_brushes(vec![]),Player::new(Vec3::splat(10000.),0.))
@@ -35,7 +35,7 @@ fn expiry_waits_before_respawn() {
 #[test]
 fn swept_pellet_bounces_without_speed_loss() {
  let (mut r,_,mut p)=fixture();
- let mut w=World::from_brushes(vec![vec![portal_bsp_viewer::play::Plane{normal:Vec3::X,distance:0.}]]);
+ let mut w=World::from_brushes(vec![vec![opensource::play::Plane{normal:Vec3::X,distance:0.}]]);
  for _ in 0..40 {r.tick(1./120.,&mut p,&mut w);}
  assert!(r.pellets[0].velocity.x>199.);
  assert!(r.pellets[0].position.x>12.);
@@ -47,7 +47,7 @@ fn real_catcher_fires_authored_platform_outputs() {
  r.input("energy_ball_launcher_lvl5","Enable","");
  for _ in 0..3 {r.tick(1./120.,&mut p,&mut w);}
  // Isolated detector regression: inject a real launched pellet into the authored trigger approach, not a solved map route.
- let entities=parse_entities(portal_bsp_viewer::lump(&b,0,1).unwrap()).unwrap();
+ let entities=parse_entities(opensource::lump(&b,0,1).unwrap()).unwrap();
  let center=entities.iter().find(|e|e.get("targetname")==Some("ball_trap_10")).unwrap().origin().unwrap();
  r.pellets[0].position=center-Vec3::Y*64.;r.pellets[0].velocity=Vec3::Y*200.;
  for _ in 0..60 {r.tick(1./120.,&mut p,&mut w);}

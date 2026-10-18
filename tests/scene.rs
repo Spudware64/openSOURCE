@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, scene::Scene};
+use opensource::{assets::Assets, scene::Scene};
 #[test]
 fn real_chamber_has_textures_uvs_baked_lighting_and_no_nodraw() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
@@ -7,7 +7,7 @@ fn real_chamber_has_textures_uvs_baked_lighting_and_no_nodraw() {
     assert!(s.textures.len() > 20);
     assert!(s.filtered_faces > 100);
     assert!(s.lightmapped_faces > 100);
-    assert!(s.vertices.len() - s.prop_triangles * 3 < portal_bsp_viewer::load(&b).unwrap().len());
+    assert!(s.vertices.len() - s.prop_triangles * 3 < opensource::load(&b).unwrap().len());
     assert!(s
         .vertices
         .iter()

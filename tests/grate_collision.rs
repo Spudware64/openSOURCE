@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::{Player, World};
+use opensource::play::{Player, World};
 
 fn grate_world() -> (World, World) {
     let mut bytes = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
@@ -46,7 +46,7 @@ fn portal_point_ray_passes_grate_but_player_hull_does_not() {
 #[test]
 fn original_map_grate_brushes_are_not_discarded() {
     let bytes = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let indices = portal_bsp_viewer::models::model_brush_indices(&bytes).unwrap();
+    let indices = opensource::models::model_brush_indices(&bytes).unwrap();
     let offset = i32::from_le_bytes(bytes[296..300].try_into().unwrap()) as usize;
     let expected = indices[0].iter().filter(|&&id| {
         let c = i32::from_le_bytes(bytes[offset + id * 12 + 8..offset + id * 12 + 12].try_into().unwrap());

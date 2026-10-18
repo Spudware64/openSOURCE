@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::*;
+use opensource::play::*;
 #[test]
 fn scripted_window_smoke_walks_jumps_and_lands() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

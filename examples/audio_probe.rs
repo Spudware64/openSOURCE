@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{
+use opensource::{
     assets::Assets,
     audio::{decode, Audio, Event, SoundBank},
 };

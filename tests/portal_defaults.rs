@@ -1,4 +1,4 @@
-use portal_bsp_viewer::portal;
+use opensource::portal;
 #[test]
 fn normal_portal_map_launch_enables_rules_without_shell_environment() {
     for map in ["testchmb_a_00", "testchmb_a_01"] {

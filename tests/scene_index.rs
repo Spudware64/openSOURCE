@@ -1,8 +1,8 @@
-use portal_bsp_viewer::scenes::{durations, scene_crc};
+use opensource::scenes::{durations, scene_crc};
 #[test]
 fn scene_image_validates_layout_ranges_and_actual_timing() {
     let fs =
-        portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", None).unwrap();
+        opensource::assets::Assets::from_game("../portal-original/portal", None).unwrap();
     let b = fs.read("scenes/scenes.image").unwrap();
     let d = durations(&b).unwrap();
     assert_eq!(d.len(), 1970);
@@ -23,6 +23,6 @@ fn scene_image_validates_layout_ranges_and_actual_timing() {
 }
 #[test]
 fn parent_cycles_are_rejected_without_mutating_original_entities() {
-    let es=portal_bsp_viewer::entity::parse_entities(br#"{"classname" "info_target" "targetname" "a" "parentname" "b"}{"classname" "info_target" "targetname" "b" "parentname" "a"}"#).unwrap();
-    assert!(portal_bsp_viewer::entity::Runtime::from_entities(es, vec![]).is_err());
+    let es=opensource::entity::parse_entities(br#"{"classname" "info_target" "targetname" "a" "parentname" "b"}{"classname" "info_target" "targetname" "b" "parentname" "a"}"#).unwrap();
+    assert!(opensource::entity::Runtime::from_entities(es, vec![]).is_err());
 }

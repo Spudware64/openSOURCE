@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::{Plane, Player, World};
+use opensource::play::{Plane, Player, World};
 #[test]
 fn default_player_uses_parry_narrowphase() {
     let w = World::from_brushes(vec![vec![Plane {

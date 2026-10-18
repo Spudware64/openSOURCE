@@ -1,7 +1,7 @@
 #[test]
 fn cli_writes_png() {
     let out = "evidence/cli-test.png";
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_portal-bsp-viewer"))
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_openSOURCE"))
         .args(["../portal-original/portal/maps/background2.bsp", out])
         .output()
         .unwrap();

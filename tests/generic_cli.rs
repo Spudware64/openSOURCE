@@ -1,7 +1,7 @@
 #[test]
 fn generic_game_root_cli_loads_textured_map_and_rejects_worker_explosion() {
     let output = std::env::temp_dir().join(format!("source-textured-{}.png", std::process::id()));
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_portal-bsp-viewer"))
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_openSOURCE"))
         .args([
             "--game",
             "../portal-original/portal",
@@ -21,7 +21,7 @@ fn generic_game_root_cli_loads_textured_map_and_rejects_worker_explosion() {
     );
     assert!(output.is_file());
     std::fs::remove_file(output).unwrap();
-    let bad = std::process::Command::new(env!("CARGO_BIN_EXE_portal-bsp-viewer"))
+    let bad = std::process::Command::new(env!("CARGO_BIN_EXE_openSOURCE"))
         .args([
             "--game",
             "../portal-original/portal",

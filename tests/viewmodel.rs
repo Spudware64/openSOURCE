@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, scene::Scene};
+use opensource::{assets::Assets, scene::Scene};
 #[test]
 fn original_weapon_idle_is_camera_local_and_textured() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();
@@ -15,7 +15,7 @@ fn original_weapon_idle_is_camera_local_and_textured() {
 fn direct_launch_consumes_only_authored_spawn_loadout() {
  let fs=Assets::from_game("../portal-original/portal",None).unwrap();
  for (map, owned) in [("testchmb_a_00",false),("testchmb_a_01",false),("testchmb_a_03",true)] {
- let b=fs.read(&format!("maps/{map}.bsp")).unwrap(); let mut r=portal_bsp_viewer::entity::Runtime::new(&b).unwrap();
+ let b=fs.read(&format!("maps/{map}.bsp")).unwrap(); let mut r=opensource::entity::Runtime::new(&b).unwrap();
  r.direct_launch_loadout(); assert_eq!(r.portal_inventory.iter().any(|v|*v),owned,"{map}");
  if owned {assert_eq!(r.portal_inventory,[true,false]); let slot=r.entity_model("portalgun_spawn_lvl4").unwrap();assert!(!r.visible[slot]);}
  }

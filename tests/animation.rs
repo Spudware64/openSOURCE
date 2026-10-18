@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{animation::Skeleton, assets::Assets, studio};
+use opensource::{animation::Skeleton, assets::Assets, studio};
 #[test]
 fn actual_portal_open_sequences_skin_vertices_not_bind_pose() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();

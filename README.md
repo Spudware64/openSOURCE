@@ -1,4 +1,4 @@
-# Source 1 map explorer — Rust / wgpu
+# openSOURCE — Rust / wgpu Source 1 reimplementation
 
 ## Windows: update and debug build
 
@@ -43,7 +43,7 @@ No controller physics, original assets, or elevator behavior is changed/fixed by
 **112 tests pass; clippy passes with warnings denied.** Actual Apple M4/Metal native verification: four portal transfers, 11,067 fixed ticks to authored ChangeLevel and 11,307 through grounded next-map arrival. Presented frames inspected. Evidence and explicit remaining limitations: [`evidence/native-chamber01-complete.md`](evidence/native-chamber01-complete.md).
 
 ```sh
-SOURCE_PORTALS=1 SOURCE_CHAMBER01_SMOKE=1 SOURCE_CHAMBER01_FULL=1 SOURCE_CHAMBER01_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_01.bsp --play
+SOURCE_PORTALS=1 SOURCE_CHAMBER01_SMOKE=1 SOURCE_CHAMBER01_FULL=1 SOURCE_CHAMBER01_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_01.bsp --play
 ```
 
 Omit `SOURCE_CHAMBER01_EXIT` to leave ordinary controls ready. Full Chamber02 gameplay, physical OS input, exact PHY/animation collision and material/sound parity remain unverified. The route uses normal jumps onto raised one-way elevator mesh support; no replacement floor was introduced. Historical sections below are superseded where they call whole-Chamber01 progression unresolved.
@@ -61,9 +61,9 @@ The verified route waits for the actual entrance scene, descends the stairs, jum
 
 ```sh
 # Normal play, no scripted route:
-SOURCE_PORTALS=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_01.bsp --play
+SOURCE_PORTALS=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_01.bsp --play
 # Reproduce the full first-puzzle route, capture real presented frames, then exit:
-SOURCE_PORTALS=1 SOURCE_CHAMBER01_SMOKE=1 SOURCE_CHAMBER01_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_01.bsp --play
+SOURCE_PORTALS=1 SOURCE_CHAMBER01_SMOKE=1 SOURCE_CHAMBER01_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_01.bsp --play
 ```
 
 Omit `SOURCE_CHAMBER01_EXIT` to leave ordinary controls ready after verification. **The later chamber01 lift/cube puzzle and eventual next-map exit remain unresolved; neither this entire BSP nor Portal is complete.** Scene support is duration/Start/Cancel/completion I/O only, not sound/actor choreography; pickup is bounded E-use, not auto-touch parity. General rotating nonzero-face BSP rendering, full rigid-body/PHY and animation collision, portal-straddle replacement recovery, materials/lighting, viewmodel/charge effects and physical OS input remain outside the verified subset. Older milestone counts and missing-feature lists below are historical where superseded here.
@@ -80,11 +80,11 @@ Map preparation validates destination assets/landmarks before replacement. Submi
 
 ```sh
 # Normal play (no scripted positioning):
-SOURCE_PORTALS=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PORTALS=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
 # Stage on final elevator, then exercise only real map I/O and movement:
-SOURCE_PORTALS=1 SOURCE_PROGRESSION_SMOKE=1 SOURCE_PROGRESSION_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PORTALS=1 SOURCE_PROGRESSION_SMOKE=1 SOURCE_PROGRESSION_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
 # Stage a held cube before the real first cleanser and walk across:
-SOURCE_PORTALS=1 SOURCE_CLEANSER_SMOKE=1 SOURCE_CLEANSER_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PORTALS=1 SOURCE_CLEANSER_SMOKE=1 SOURCE_CLEANSER_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
 ```
 
 Omit the corresponding `*_EXIT` flag to leave normal controls ready after verification. These are scripted simulation inputs, not physical OS input verification, and staging on the final lift is **not** proof of a start-to-finish chamber solution. Later chamber logic still reports missing rotating-door, automatic portal-gun fire, sound/choreography and material inputs; **full puzzles/full Source parity are not complete**. Global-state handoff is the tested elevator-transform subset, not general Source save/restore. A degenerate zero-area grate face in chamber 01 is explicitly diagnosed and excluded from portal placement, not used to abort an otherwise renderable map. Historical sections below are superseded where they say ChangeLevel/fizzlers are wholly absent or show older counts.
@@ -96,7 +96,7 @@ Omit the corresponding `*_EXIT` flag to leave normal controls ready after verifi
 **89 tests pass; clippy passes with warnings denied.** The formerly failing real-map re-pickup regression remains intact. Actual Metal window smoke completed spawn → pickup → carry → drop → plate/door open → walk through and back → re-pickup → door closed; 2200×1446 presented frames were inspected. Evidence: [`evidence/native-cubes.md`](evidence/native-cubes.md), `artifacts/cube-{tests,clippy,smoke}.log`, `artifacts/cubes/`.
 
 ```sh
-SOURCE_PORTALS=1 SOURCE_CUBE_SMOKE=1 SOURCE_CUBE_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PORTALS=1 SOURCE_CUBE_SMOKE=1 SOURCE_CUBE_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
 # Omit SOURCE_CUBE_EXIT to leave the window playable after scripted verification.
 ```
 
@@ -107,9 +107,9 @@ Free bodies cross linked portals with mapped velocity, including the actual cham
 **One-hop linked portal views and player traversal are enabled automatically for maps authoring `prop_portal` or `weapon_portalgun`.** No shell environment setup is needed for the normal Portal `--game ... --map ... --play` command, including on Windows. `SOURCE_PORTALS=0` explicitly selects the generic explorer; `SOURCE_PORTALS=1` explicitly enables rules for diagnostic maps. Click to capture, then **LMB blue / RMB orange**, aiming at screen centre. Existing WASD/Space/Ctrl/E/Esc/R/N controls remain. No substitute portal-gun model is drawn. Chamber 00's first real portal pair follows its authored 66.5-second startup delay; activation and linkage are not forced early.
 
 ```sh
-SOURCE_PORTALS=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
-SOURCE_PORTALS=1 SOURCE_PORTAL_SMOKE=1 SOURCE_PORTAL_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
-SOURCE_PORTALS=1 SOURCE_PORTAL_SMOKE=floor SOURCE_PORTAL_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PORTALS=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PORTALS=1 SOURCE_PORTAL_SMOKE=1 SOURCE_PORTAL_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PORTALS=1 SOURCE_PORTAL_SMOKE=floor SOURCE_PORTAL_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
 ```
 
 - Nearest world-surface placement is restricted to the tested modular-concrete family, noportal/sky/nodraw/tool/displacement exclusions, coplanar footprint fitting and brush-ray occlusion; overlapping same-plane pairs are rejected. This is a conservative sampled placement policy, not Source's complete portal-bumping/material solver.
@@ -135,8 +135,8 @@ Reproduce scripted native evidence (omit `SOURCE_PARITY_EXIT=1` to leave a norma
 
 ```sh
 cargo build
-SOURCE_PARITY_SMOKE=dropper SOURCE_PARITY_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
-SOURCE_PARITY_SMOKE=elevator SOURCE_PARITY_EXIT=1 target/debug/portal-bsp-viewer --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PARITY_SMOKE=dropper SOURCE_PARITY_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
+SOURCE_PARITY_SMOKE=elevator SOURCE_PARITY_EXIT=1 target/debug/openSOURCE --game ../portal-original/portal --map maps/testchmb_a_00.bsp --play
 ```
 
 No portal gun/placement/traversal, cube pickup/spawning/physics, full chamber progression, map ChangeLevel execution, sound, choreography, HDR/material parity or game-DLL compatibility is claimed. Browser export was not changed by this increment.
@@ -237,7 +237,7 @@ The following reproducible fixture smoke places the real player on the first cha
 SOURCE_SMOKE=1 SOURCE_SMOKE_POSITION='-511.87 -928.49 144.1' \
 SOURCE_SMOKE_ANGLES='0 171 0' \
 SOURCE_SCREENSHOT=evidence/textured-interactive-pressure.png \
-target/debug/portal-bsp-viewer --game ../portal-original/portal \
+target/debug/openSOURCE --game ../portal-original/portal \
   --map maps/testchmb_a_00.bsp --workers 4 --play
 ```
 
@@ -257,3 +257,9 @@ Chamber BSP-only baseline: **8,054 visible triangles**; current BSP + static pro
 - Copier `FUN_10003670` validates length modulo `0x48`, checks lump version and advances records by `0x48`: `ev_5be811b3f788e083c0ced16972db0531558a2162ddfe4f49d35b8da73e16b384`.
 
 This supports the **72-byte TEXINFO stride through observed call correlation**. Individual UV/lightmap field meanings, filesystem/entity behaviour and movement tuning are compatible implementation choices checked against fixtures, **not recovered engine/client/server source or observed proprietary runtime behaviour**. Earlier header/geometry evidence remains in `evidence/rea-bsppack.json` and measured directories in `evidence/map-layouts.json`.
+
+## Source and assets
+
+Source repository: https://github.com/Spudware64/openSOURCE
+
+This repository contains the reimplementation source only. Valve game assets are not distributed and are not covered by this project’s MIT licence. Supply your own Portal installation with `--game`. Runtime evidence and captures under `evidence/` are local and are not published.

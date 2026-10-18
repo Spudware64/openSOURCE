@@ -1,8 +1,8 @@
 use glam::Vec3;
-use portal_bsp_viewer::{assets::Assets,entity::{parse_entities,Runtime},play::{World,Player},scene::Scene};
+use opensource::{assets::Assets,entity::{parse_entities,Runtime},play::{World,Player},scene::Scene};
 fn main(){
  let b=std::fs::read("../portal-original/portal/maps/testchmb_a_02.bsp").unwrap();
- let es=parse_entities(portal_bsp_viewer::lump(&b,0,1).unwrap()).unwrap();
+ let es=parse_entities(opensource::lump(&b,0,1).unwrap()).unwrap();
  let fs=Assets::from_game("../portal-original/portal",Some(&b)).unwrap();let s=Scene::load(&b,&fs).unwrap();
  let mut r=Runtime::new(&b).unwrap();r.bind_animations(&s);let mut w=World::parse(&b).unwrap();w.bind_scene(&s);w.update_models(&r.origins,&r.visible);
  for name in ["box","box_2"] {let m=r.entity_model(name).unwrap();let (lo,hi)=s.vertices.iter().filter(|v|v.model as usize==m).fold((Vec3::splat(f32::INFINITY),Vec3::splat(f32::NEG_INFINITY)),|(lo,hi),v|{let p=Vec3::from(v.position);(lo.min(p),hi.max(p))});println!("{name} model {m} bounds {lo:?} {hi:?}");}

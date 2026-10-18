@@ -1,4 +1,4 @@
-use portal_bsp_viewer::assets::Assets;
+use opensource::assets::Assets;
 fn inline_vpk() -> Vec<u8> {
     let mut tree = b"txt\0 \0test\0".to_vec();
     tree.extend(0u32.to_le_bytes());

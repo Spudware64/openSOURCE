@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, studio::decode};
+use opensource::{assets::Assets, studio::decode};
 fn files() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();
     let path = "models/props/sign_frame01/sign_frame01";

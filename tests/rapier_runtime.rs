@@ -1,11 +1,11 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     entity::{parse_entities, Runtime},
     play::{Player, World},
 };
 #[test]
 fn held_cube_stays_outside_an_ordinary_wall_for_240_ticks() {
-    use portal_bsp_viewer::play::Plane;
+    use opensource::play::Plane;
     let es = parse_entities(br#"{"classname" "prop_physics" "origin" "40 0 64"}"#).unwrap();
     let mut r = Runtime::from_entities(es, vec![(Vec3::ZERO, Vec3::ZERO)]).unwrap();
     let mut w = World::from_brushes(vec![vec![Plane {
@@ -48,7 +48,7 @@ fn thrown_cube_transfers_momentum_to_another_runtime_cube() {
 
 #[test]
 fn linked_portals_keep_runtime_cube_impulses_active() {
-    use portal_bsp_viewer::portal::Portal;
+    use opensource::portal::Portal;
     let es = parse_entities(br#"{"classname" "prop_physics" "origin" "10 0 64"}{"classname" "prop_physics" "origin" "65 0 64"}"#).unwrap();
     let mut r = Runtime::from_entities(es, vec![(Vec3::ZERO, Vec3::ZERO)]).unwrap();
     let mut w = World::from_brushes(vec![]);

@@ -1,4 +1,4 @@
-use portal_bsp_viewer::assets::Assets;
+use opensource::assets::Assets;
 fn main() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();
     for stem in [

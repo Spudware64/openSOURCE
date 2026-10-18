@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, scene::Scene};
+use opensource::{assets::Assets, scene::Scene};
 #[test]
 fn single_and_four_worker_assets_are_byte_identical() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

@@ -1,4 +1,4 @@
-use portal_bsp_viewer::*;
+use opensource::*;
 #[test]
 fn metal_renders_real_map() {
     let b = std::fs::read("../portal-original/portal/maps/background2.bsp").unwrap();

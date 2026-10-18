@@ -1,9 +1,9 @@
 use glam::Vec3;
-use portal_bsp_viewer::portal::{Portal, Surfaces};
+use opensource::portal::{Portal, Surfaces};
 #[test]
 fn actual_chamber_placement_fits_only_portalable_world_faces() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
     let surfaces = Surfaces::load(&b, &fs).unwrap();
     let mut accepted = 0;
@@ -29,7 +29,7 @@ fn actual_chamber_placement_fits_only_portalable_world_faces() {
 }
 #[test]
 fn traverses_wall_aperture_but_not_its_rim() {
-    use portal_bsp_viewer::play::{Plane, Player, World};
+    use opensource::play::{Plane, Player, World};
     let wall = vec![
         Plane {
             normal: Vec3::X,
@@ -79,7 +79,7 @@ fn traverses_wall_aperture_but_not_its_rim() {
 }
 #[test]
 fn actual_placed_floor_to_wall_preserves_fall_speed_and_orientation() {
-    use portal_bsp_viewer::{
+    use opensource::{
         assets::Assets,
         play::{Player, World},
     };
@@ -119,7 +119,7 @@ fn actual_placed_floor_to_wall_preserves_fall_speed_and_orientation() {
 }
 #[test]
 fn floor_exit_roll_settles_without_changing_forward_or_velocity() {
-    use portal_bsp_viewer::play::{Player, World};
+    use opensource::play::{Player, World};
     let w = World::from_brushes(vec![]);
     let mut p = Player::new(Vec3::ZERO, 0.);
     p.view_up = Vec3::Y;
@@ -134,7 +134,7 @@ fn floor_exit_roll_settles_without_changing_forward_or_velocity() {
 }
 #[test]
 fn actual_placed_wall_to_floor_launches_upward_without_speed_reset() {
-    use portal_bsp_viewer::{
+    use opensource::{
         assets::Assets,
         play::{Player, World},
     };
@@ -169,7 +169,7 @@ fn actual_placed_wall_to_floor_launches_upward_without_speed_reset() {
 }
 #[test]
 fn actual_gpu_portal_samples_linked_scene_only_inside_aperture() {
-    use portal_bsp_viewer::{assets::Assets, render_portal_scene, scene::Scene};
+    use opensource::{assets::Assets, render_portal_scene, scene::Scene};
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
     let scene = Scene::load(&b, &fs).unwrap();
@@ -193,7 +193,7 @@ fn actual_gpu_portal_samples_linked_scene_only_inside_aperture() {
         }
     }
     clipped_scene.textures[0] =
-        vec![255; portal_bsp_viewer::scene::TILE * portal_bsp_viewer::scene::TILE * 4];
+        vec![255; opensource::scene::TILE * opensource::scene::TILE * 4];
     let clipped =
         render_portal_scene(&clipped_scene, 256, 192, camera, [Some(a), Some(b)]).unwrap();
     assert_eq!(
@@ -214,7 +214,7 @@ fn actual_gpu_portal_samples_linked_scene_only_inside_aperture() {
 #[test]
 fn noportal_surface_flag_rejects_an_otherwise_fitting_concrete_floor() {
     let mut b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
     let eye = Vec3::new(-544., -320., 210.);
     assert!(Surfaces::load(&b, &fs)
@@ -235,7 +235,7 @@ fn noportal_surface_flag_rejects_an_otherwise_fitting_concrete_floor() {
 #[test]
 fn chamber_ceiling_and_opposed_walls_face_the_air_not_solid() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
     let s = Surfaces::load(&b, &fs).unwrap();
     let p = s.place(Vec3::new(-512., -640., 300.), Vec3::Z).unwrap();
@@ -244,7 +244,7 @@ fn chamber_ceiling_and_opposed_walls_face_the_air_not_solid() {
 }
 #[test]
 fn blocked_exit_does_not_let_player_fall_through_source_wall() {
-    use portal_bsp_viewer::play::{Plane, Player, World};
+    use opensource::play::{Plane, Player, World};
     let box_brush = |lo: Vec3, hi: Vec3| {
         vec![
             Plane {
@@ -291,7 +291,7 @@ fn blocked_exit_does_not_let_player_fall_through_source_wall() {
 }
 #[test]
 fn actual_authored_chamber_pair_crosses_with_solid_exit_clearance() {
-    use portal_bsp_viewer::{
+    use opensource::{
         entity::Runtime,
         play::{Player, World},
     };
@@ -300,7 +300,7 @@ fn actual_authored_chamber_pair_crosses_with_solid_exit_clearance() {
     r.portal_events = Some(vec![]);
     let mut w = World::parse(&bytes).unwrap();
     let mut p = Player::new(Vec3::new(-740., -320., 128.03125), std::f32::consts::PI);
-    let mut game = portal_bsp_viewer::portal::Game::load(&bytes).unwrap();
+    let mut game = opensource::portal::Game::load(&bytes).unwrap();
     for _ in 0..120 {
         r.tick(1. / 120., &mut p, &mut w);
     }
@@ -317,7 +317,7 @@ fn actual_authored_chamber_pair_crosses_with_solid_exit_clearance() {
 }
 #[test]
 fn portal_camera_basis_recovers_when_mouse_look_aligns_with_old_up() {
-    use portal_bsp_viewer::play::{Player, World};
+    use opensource::play::{Player, World};
     let w = World::from_brushes(vec![]);
     let mut p = Player::new(Vec3::ZERO, 0.);
     p.view_up = Vec3::X;
@@ -328,7 +328,7 @@ fn portal_camera_basis_recovers_when_mouse_look_aligns_with_old_up() {
 #[test]
 fn manually_replaced_portal_is_not_fizzled_by_old_authored_name() {
     let bytes = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let mut game = portal_bsp_viewer::portal::Game::load(&bytes).unwrap();
+    let mut game = opensource::portal::Game::load(&bytes).unwrap();
     game.apply_events(&mut vec![("portal_blue_0".into(), true)]);
     let replacement = Portal::new(Vec3::new(-416., -320., 128.), Vec3::Z, Vec3::Y);
     game.place(0, replacement);
@@ -337,7 +337,7 @@ fn manually_replaced_portal_is_not_fizzled_by_old_authored_name() {
 }
 #[test]
 fn chamber_script_activates_and_fizzles_named_portals() {
-    use portal_bsp_viewer::{
+    use opensource::{
         entity::Runtime,
         play::{Player, World},
     };
@@ -345,7 +345,7 @@ fn chamber_script_activates_and_fizzles_named_portals() {
     let mut runtime = Runtime::new(&bytes).unwrap();
     let mut world = World::parse(&bytes).unwrap();
     let mut player = Player::spawn(&world);
-    let mut game = portal_bsp_viewer::portal::Game::load(&bytes).unwrap();
+    let mut game = opensource::portal::Game::load(&bytes).unwrap();
     runtime.portal_events = Some(vec![]);
     runtime.input("relay_portal_cancel_room1", "Trigger", "");
     runtime.tick(1. / 120., &mut player, &mut world);

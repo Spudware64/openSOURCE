@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{assets::Assets, portal::Portal, render_portal_scene, scene::Scene};
+use opensource::{assets::Assets, portal::Portal, render_portal_scene, scene::Scene};
 #[test]
 fn unlinked_portal_is_visibly_dormant_not_a_flat_remote_view_placeholder() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     entity::{parse_entities, Runtime},
     play::{Player, World},
 };
@@ -11,10 +11,10 @@ fn tracktrain_without_brush_model_is_rejected() {
 #[test]
 fn skeletal_completion_dispatches_authored_output_once() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
-    let scene = portal_bsp_viewer::scene::Scene::load(&b, &fs).unwrap();
-    let mut entities = parse_entities(portal_bsp_viewer::lump(&b, 0, 1).unwrap()).unwrap();
+    let scene = opensource::scene::Scene::load(&b, &fs).unwrap();
+    let mut entities = parse_entities(opensource::lump(&b, 0, 1).unwrap()).unwrap();
     entities
         .iter_mut()
         .find(|e| e.get("targetname") == Some("box_dropper_model_cover"))
@@ -24,7 +24,7 @@ fn skeletal_completion_dispatches_authored_output_once() {
             "OnAnimationDone".into(),
             "elevator_door_model_middle,SetAnimation,open,0,1".into(),
         ));
-    let bounds = portal_bsp_viewer::lump(&b, 14, 48)
+    let bounds = opensource::lump(&b, 14, 48)
         .unwrap()
         .chunks_exact(48)
         .map(|a| {

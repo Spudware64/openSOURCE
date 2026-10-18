@@ -1,4 +1,4 @@
-use portal_bsp_viewer::assets::*;
+use opensource::assets::*;
 #[test]
 fn actual_archives_resolve_materials_without_extraction() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();

@@ -1,6 +1,6 @@
 //! Bounded CPU-only Chamber 00 profiling; no GPU or invented frame rate.
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     assets::Assets,
     entity::Runtime,
     play::{Player, World},

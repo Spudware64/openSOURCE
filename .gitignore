@@ -1,5 +1,6 @@
 /target/
 /artifacts/
+/evidence/
 /logs/
 *.log
 .progress-active

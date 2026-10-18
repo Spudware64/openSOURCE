@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{animation::{Skeleton, SkinMesh}, assets::Assets, studio};
+use opensource::{animation::{Skeleton, SkinMesh}, assets::Assets, studio};
 #[test]
 fn indexed_skin_matches_expanded_actual_models() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();

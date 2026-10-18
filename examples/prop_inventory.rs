@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, props::static_props};
+use opensource::{assets::Assets, props::static_props};
 fn i(b: &[u8], o: usize) -> i32 {
     i32::from_le_bytes(b[o..o + 4].try_into().unwrap())
 }

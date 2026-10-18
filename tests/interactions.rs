@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{entity::*, play::*};
+use opensource::{entity::*, play::*};
 #[test]
 fn actual_player_pressure_trigger_opens_and_releases_real_doors() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::World;
+use opensource::play::World;
 fn main() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_01.bsp").unwrap();
     let w = World::parse(&b).unwrap();

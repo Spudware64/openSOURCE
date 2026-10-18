@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{assets::Assets, entity::*, play::*, scene::Scene};
+use opensource::{assets::Assets, entity::*, play::*, scene::Scene};
 #[test]
 fn actual_second_room_cube_settles_on_plate_and_keeps_exit_open() {
     run(false);
@@ -12,12 +12,12 @@ fn run(player_first: bool) {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
     let scene = Scene::load(&b, &fs).unwrap();
-    let es = parse_entities(portal_bsp_viewer::lump(&b, 0, 1).unwrap()).unwrap();
+    let es = parse_entities(opensource::lump(&b, 0, 1).unwrap()).unwrap();
     let mut r = Runtime::new(&b).unwrap();
     r.bind_animations(&scene);
     let mut w = World::parse(&b).unwrap();
     w.bind_scene(&scene);
-    let cube = portal_bsp_viewer::lump(&b, 14, 48).unwrap().len() / 48
+    let cube = opensource::lump(&b, 14, 48).unwrap().len() / 48
         + es.iter()
             .filter(|e| e.get("classname") == Some("prop_physics"))
             .position(|e| e.get("targetname") == Some("box"))

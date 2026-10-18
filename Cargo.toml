@@ -1,7 +1,10 @@
 [package]
-name = "portal-bsp-viewer"
+name = "openSOURCE"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+name = "opensource"
 
 [dependencies]
 wgpu = "0.19"

@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::{Plane, World};
+use opensource::play::{Plane, World};
 fn slab(top: f32) -> Vec<Plane> {
     vec![
         Plane {

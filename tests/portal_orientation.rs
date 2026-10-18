@@ -1,6 +1,6 @@
 //! Orientation probes: no portal ownership, authored angles, or gameplay state is changed.
 use glam::{Mat4, Vec3};
-use portal_bsp_viewer::portal::{Game, Portal, Surface, Surfaces, HALF_HEIGHT, HALF_WIDTH};
+use opensource::portal::{Game, Portal, Surface, Surfaces, HALF_HEIGHT, HALF_WIDTH};
 
 fn normals() -> [Vec3; 6] {
     [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y, Vec3::Z, -Vec3::Z]
@@ -179,7 +179,7 @@ fn linked_camera_and_screen_projection_agree_for_all_36_normal_pairs() {
 
 #[test]
 fn gpu_aperture_is_visible_from_front_for_all_six_normals() {
-    use portal_bsp_viewer::{assets::Assets, render_portal_scene, scene::Scene};
+    use opensource::{assets::Assets, render_portal_scene, scene::Scene};
     let bytes = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let assets = Assets::from_game("../portal-original/portal", Some(&bytes)).unwrap();
     let scene = Scene::load(&bytes, &assets).unwrap();

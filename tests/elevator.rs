@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     entity::Runtime,
     play::{Player, World},
 };
@@ -8,9 +8,9 @@ fn authored_middle_elevator_carries_player_and_passes_tracks() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let mut r = Runtime::new(&b).unwrap();
     let mut w = World::parse(&b).unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
-    let scene = portal_bsp_viewer::scene::Scene::load(&b, &fs).unwrap();
+    let scene = opensource::scene::Scene::load(&b, &fs).unwrap();
     w.bind_scene(&scene);
     r.bind_animations(&scene);
     w.update_models(&r.origins, &r.visible);

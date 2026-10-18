@@ -33,7 +33,7 @@ try {
         $metadataText = & cargo metadata --format-version 1 --no-deps
         if ($LASTEXITCODE -ne 0) { throw 'Could not locate Cargo target directory.' }
         $metadata = ($metadataText -join "`n") | ConvertFrom-Json
-        $exe = Join-Path $metadata.target_directory 'debug\portal-bsp-viewer.exe'
+        $exe = Join-Path $metadata.target_directory 'debug\openSOURCE.exe'
         if (-not (Test-Path -LiteralPath $exe)) { throw "Debug executable not found: $exe" }
         $arguments = @('--game', $GamePath, '--map', $Map, '--play')
         if ($Trace) {

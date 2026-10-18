@@ -1,9 +1,9 @@
-use portal_bsp_viewer::{assets::Assets, studio::decode};
+use opensource::{assets::Assets, studio::decode};
 #[test]
 fn chamber_contains_dynamic_dropper_and_elevator_geometry() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
-    let s = portal_bsp_viewer::scene::Scene::load(&b, &fs).unwrap();
+    let s = opensource::scene::Scene::load(&b, &fs).unwrap();
     for (origin, radius) in [
         (glam::Vec3::new(-830.233, -1054.27, 276.), 80.),
         (glam::Vec3::new(-1472., -864., 145.), 100.),

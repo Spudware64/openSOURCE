@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::{Plane, Player, World};
+use opensource::play::{Plane, Player, World};
 
 #[test]
 fn grounded_input_accelerates_and_release_slows_without_instant_stop() {

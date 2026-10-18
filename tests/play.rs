@@ -1,4 +1,4 @@
-use portal_bsp_viewer::play::*;
+use opensource::play::*;
 #[test]
 fn actual_map_spawn_settles_on_solid_floor() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
@@ -42,7 +42,7 @@ fn actual_map_spawn_settles_on_solid_floor() {
 #[test]
 fn rejects_nonfinite_spawn_angle() {
     let mut b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let entities = portal_bsp_viewer::lump(&b, 0, 1).unwrap();
+    let entities = opensource::lump(&b, 0, 1).unwrap();
     let off = entities.as_ptr() as usize - b.as_ptr() as usize;
     let text = std::str::from_utf8(entities).unwrap();
     let player = text.find("\"info_player_start\"").unwrap();

@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::{Player, RenderPosition};
+use opensource::play::{Player, RenderPosition};
 #[test]
 fn camera_moves_between_ticks_but_snaps_portal_discontinuities() {
     let mut p = Player::new(Vec3::ZERO, 0.);

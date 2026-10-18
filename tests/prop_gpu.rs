@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, render_scene, scene::Scene};
+use opensource::{assets::Assets, render_scene, scene::Scene};
 #[test]
 fn invalid_gpu_scene_returns_error_not_validation_panic() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
@@ -18,14 +18,14 @@ fn invalid_gpu_scene_returns_error_not_validation_panic() {
 fn opaque_doorframe_with_mask_alpha_is_visible_on_gpu() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
-    let props = portal_bsp_viewer::props::static_props(&b).unwrap();
+    let props = opensource::props::static_props(&b).unwrap();
     let mut s = Scene::load(&b, &fs).unwrap();
     let sizes = props
         .models
         .iter()
         .map(|path| {
             let stem = path.trim_end_matches(".mdl");
-            portal_bsp_viewer::studio::decode(
+            opensource::studio::decode(
                 &fs.read(path).unwrap(),
                 &fs.read(&format!("{stem}.vvd")).unwrap(),
                 &fs.read(&format!("{stem}.dx90.vtx")).unwrap(),

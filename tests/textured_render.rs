@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, render_scene, scene::Scene};
+use opensource::{assets::Assets, render_scene, scene::Scene};
 #[test]
 fn textured_scene_reaches_real_gpu() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

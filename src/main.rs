@@ -4,10 +4,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return game_cli(&args[1..]);
     }
     if args.len() == 3 && args[1] == "--play" {
-        return portal_bsp_viewer::interactive(&std::fs::read(&args[2])?).map_err(Into::into);
+        return opensource::interactive(&std::fs::read(&args[2])?).map_err(Into::into);
     }
     if args.len() != 3 && args.len() != 9 {
-        return Err("usage: portal-bsp-viewer MAP.bsp OUTPUT.png [eye_x eye_y eye_z target_x target_y target_z]".into());
+        return Err("usage: openSOURCE MAP.bsp OUTPUT.png [eye_x eye_y eye_z target_x target_y target_z]".into());
     }
     let camera = if args.len() == 9 {
         let n: Vec<f32> = args[3..]
@@ -19,13 +19,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let bytes = std::fs::read(&args[1])?;
-    let vertices = portal_bsp_viewer::load(&bytes)?;
+    let vertices = opensource::load(&bytes)?;
     println!(
         "map: {} bytes, {} triangles",
         bytes.len(),
         vertices.len() / 3
     );
-    let pixels = portal_bsp_viewer::render(&vertices, 1024, 768, camera)?;
+    let pixels = opensource::render(&vertices, 1024, 768, camera)?;
     let mut encoder = png::Encoder::new(
         std::io::BufWriter::new(std::fs::File::create(&args[2])?),
         1024,
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    use portal_bsp_viewer::{assets::Assets, scene::Scene};
+    use opensource::{assets::Assets, scene::Scene};
     let mut game = None;
     let mut map = None;
     let mut output = None;
@@ -109,16 +109,16 @@ fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if play {
         let portal_override = std::env::var("SOURCE_PORTALS").ok();
         let surfaces =
-            if portal_bsp_viewer::portal::rules_enabled(&bytes, portal_override.as_deref())? {
-                Some(portal_bsp_viewer::portal::Surfaces::load(&bytes, &fs)?)
+            if opensource::portal::rules_enabled(&bytes, portal_override.as_deref())? {
+                Some(opensource::portal::Surfaces::load(&bytes, &fs)?)
             } else {
                 None
             };
-        let root = portal_bsp_viewer::session::GameRoot::new(game, workers)?;
-        return portal_bsp_viewer::interactive_game(&bytes, scene, surfaces, root)
+        let root = opensource::session::GameRoot::new(game, workers)?;
+        return opensource::interactive_game(&bytes, scene, surfaces, root)
             .map_err(Into::into);
     }
-    let pixels = portal_bsp_viewer::render_scene(&scene, 1024, 768, camera)?;
+    let pixels = opensource::render_scene(&scene, 1024, 768, camera)?;
     let output = output.unwrap();
     let mut encoder = png::Encoder::new(
         std::io::BufWriter::new(std::fs::File::create(output)?),

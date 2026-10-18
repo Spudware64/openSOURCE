@@ -1,11 +1,11 @@
-use portal_bsp_viewer::{assets::Assets, scene::Scene};
+use opensource::{assets::Assets, scene::Scene};
 #[test]
 fn original_energy_ball_has_authored_mesh_and_materials() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();
     let (vertices, textures) = Scene::energy_ball(&fs).unwrap();
     assert_eq!(vertices.len(), 1152);
     assert_eq!(textures.len(), 4);
-    let model = portal_bsp_viewer::studio::decode(&fs.read("models/effects/combineball.mdl").unwrap(), &fs.read("models/effects/combineball.vvd").unwrap(), &fs.read("models/effects/combineball.dx90.vtx").unwrap()).unwrap();
+    let model = opensource::studio::decode(&fs.read("models/effects/combineball.mdl").unwrap(), &fs.read("models/effects/combineball.vvd").unwrap(), &fs.read("models/effects/combineball.dx90.vtx").unwrap()).unwrap();
     for (actual, original) in vertices.iter().zip(&model.vertices) {
         assert_eq!(actual.position, original.position.to_array());
         assert_eq!(actual.uv, original.uv);

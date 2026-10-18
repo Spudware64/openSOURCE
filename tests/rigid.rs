@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     entity::{parse_entities, Runtime},
     play::{Player, World},
 };
@@ -47,8 +47,8 @@ fn real_box_weights_chamber_button_without_player_on_plate() {
     let mut r = Runtime::new(&b).unwrap();
     let mut w = World::parse(&b).unwrap();
     let mut p = Player::new(Vec3::new(-650., -1000., 136.), 0.);
-    let es = parse_entities(portal_bsp_viewer::lump(&b, 0, 1).unwrap()).unwrap();
-    let m = portal_bsp_viewer::lump(&b, 14, 48).unwrap().len() / 48
+    let es = parse_entities(opensource::lump(&b, 0, 1).unwrap()).unwrap();
+    let m = opensource::lump(&b, 14, 48).unwrap().len() / 48
         + es.iter()
             .filter(|e| e.get("classname") == Some("prop_physics"))
             .position(|e| e.get("targetname") == Some("box"))
@@ -61,7 +61,7 @@ fn real_box_weights_chamber_button_without_player_on_plate() {
 }
 #[test]
 fn free_cube_crosses_linked_portal_with_velocity() {
-    use portal_bsp_viewer::portal::Portal;
+    use opensource::portal::Portal;
     let es =
         parse_entities(br#"{"classname" "prop_physics" "targetname" "box" "origin" "10 0 64"}"#)
             .unwrap();
@@ -89,9 +89,9 @@ fn real_spawn_pickup_walk_drop_opens_door() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let mut r = Runtime::new(&b).unwrap();
     let mut w = World::parse(&b).unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
-    let scene = portal_bsp_viewer::scene::Scene::load(&b, &fs).unwrap();
+    let scene = opensource::scene::Scene::load(&b, &fs).unwrap();
     r.bind_animations(&scene);
     w.bind_scene(&scene);
     w.update_models(&r.origins, &r.visible);
@@ -185,7 +185,7 @@ fn real_spawn_pickup_walk_drop_opens_door() {
 }
 #[test]
 fn throw_key_is_distinct_from_portal_mouse_buttons() {
-    use portal_bsp_viewer::play::{Action, Controls};
+    use opensource::play::{Action, Controls};
     assert_eq!(
         Controls::default().press(winit::keyboard::KeyCode::KeyF),
         Action::Throw
@@ -195,7 +195,7 @@ fn throw_key_is_distinct_from_portal_mouse_buttons() {
 fn blocked_maker_does_not_embed_or_fire_spawn_output() {
     let es=parse_entities(br#"{"classname" "prop_physics" "targetname" "box" "origin" "0 0 100"}{"classname" "point_template" "targetname" "template" "Template01" "box"}{"classname" "env_entity_maker" "targetname" "maker" "EntityTemplate" "template" "origin" "0 0 -100" "OnEntitySpawned" "box,Kill,,0,-1"}"#).unwrap();
     let mut r = Runtime::from_entities(es, vec![(Vec3::ZERO, Vec3::ZERO)]).unwrap();
-    let mut w = World::from_brushes(vec![vec![portal_bsp_viewer::play::Plane {
+    let mut w = World::from_brushes(vec![vec![opensource::play::Plane {
         normal: Vec3::Z,
         distance: 0.,
     }]]);
@@ -224,12 +224,12 @@ fn physics_trigger_delivers_specific_activator() {
 fn collision_extent_comes_from_real_posed_mesh() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let mut r = Runtime::new(&b).unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
-    let scene = portal_bsp_viewer::scene::Scene::load(&b, &fs).unwrap();
+    let scene = opensource::scene::Scene::load(&b, &fs).unwrap();
     r.bind_animations(&scene);
-    let es = parse_entities(portal_bsp_viewer::lump(&b, 0, 1).unwrap()).unwrap();
-    let m = portal_bsp_viewer::lump(&b, 14, 48).unwrap().len() / 48
+    let es = parse_entities(opensource::lump(&b, 0, 1).unwrap()).unwrap();
+    let m = opensource::lump(&b, 14, 48).unwrap().len() / 48
         + es.iter()
             .filter(|e| e.get("classname") == Some("prop_physics"))
             .position(|e| e.get("targetname") == Some("box"))
@@ -240,7 +240,7 @@ fn collision_extent_comes_from_real_posed_mesh() {
         .filter(|v| v.model as usize == m)
         .map(|v| v.position[2])
         .fold(f32::INFINITY, f32::min);
-    let mut w = World::from_brushes(vec![vec![portal_bsp_viewer::play::Plane {
+    let mut w = World::from_brushes(vec![vec![opensource::play::Plane {
         normal: Vec3::Z,
         distance: 0.,
     }]]);
@@ -259,7 +259,7 @@ fn collision_extent_comes_from_real_posed_mesh() {
 fn bounded_cuboids_stack_on_each_other() {
     let es=parse_entities(br#"{"classname" "prop_physics" "targetname" "lower" "origin" "0 0 100"}{"classname" "prop_physics" "targetname" "upper" "origin" "0 0 160"}"#).unwrap();
     let mut r = Runtime::from_entities(es, vec![(Vec3::ZERO, Vec3::ZERO)]).unwrap();
-    let mut w = World::from_brushes(vec![vec![portal_bsp_viewer::play::Plane {
+    let mut w = World::from_brushes(vec![vec![opensource::play::Plane {
         normal: Vec3::Z,
         distance: 0.,
     }]]);
@@ -280,7 +280,7 @@ fn player_cannot_walk_through_resting_cube() {
         parse_entities(br#"{"classname" "prop_physics" "targetname" "box" "origin" "64 0 20.04"}"#)
             .unwrap();
     let mut r = Runtime::from_entities(es, vec![(Vec3::ZERO, Vec3::ZERO)]).unwrap();
-    let mut w = World::from_brushes(vec![vec![portal_bsp_viewer::play::Plane {
+    let mut w = World::from_brushes(vec![vec![opensource::play::Plane {
         normal: Vec3::Z,
         distance: 0.,
     }]]);
@@ -293,7 +293,7 @@ fn player_cannot_walk_through_resting_cube() {
 }
 #[test]
 fn cube_portal_exit_is_blocked_by_other_body() {
-    use portal_bsp_viewer::portal::Portal;
+    use opensource::portal::Portal;
     let es=parse_entities(br#"{"classname" "prop_physics" "targetname" "source" "origin" "10 0 64"}{"classname" "prop_physics" "targetname" "blocker" "origin" "100 0 64"}"#).unwrap();
     let mut r = Runtime::from_entities(es, vec![(Vec3::ZERO, Vec3::ZERO)]).unwrap();
     let mut w = World::from_brushes(vec![]);
@@ -316,7 +316,7 @@ fn cube_portal_exit_is_blocked_by_other_body() {
 }
 #[test]
 fn actual_chamber_cube_falls_through_floor_portal_and_exits_wall() {
-    use portal_bsp_viewer::{assets::Assets, portal::Surfaces};
+    use opensource::{assets::Assets, portal::Surfaces};
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
     let surfaces = Surfaces::load(&b, &fs).unwrap();
@@ -330,8 +330,8 @@ fn actual_chamber_cube_falls_through_floor_portal_and_exits_wall() {
     let mut w = World::parse(&b).unwrap();
     w.portals = [Some(floor), Some(wall)];
     let mut p = Player::new(w.spawn, w.yaw);
-    let es = parse_entities(portal_bsp_viewer::lump(&b, 0, 1).unwrap()).unwrap();
-    let m = portal_bsp_viewer::lump(&b, 14, 48).unwrap().len() / 48
+    let es = parse_entities(opensource::lump(&b, 0, 1).unwrap()).unwrap();
+    let m = opensource::lump(&b, 14, 48).unwrap().len() / 48
         + es.iter()
             .filter(|e| e.get("classname") == Some("prop_physics"))
             .position(|e| e.get("targetname") == Some("box"))

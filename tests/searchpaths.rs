@@ -1,4 +1,4 @@
-use portal_bsp_viewer::assets::*;
+use opensource::assets::*;
 #[test]
 fn gameinfo_resolves_ordered_search_paths_without_portal_constants() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();

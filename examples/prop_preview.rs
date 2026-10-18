@@ -1,5 +1,5 @@
 //! Isolate one genuinely decoded chamber prop for visual verification.
-use portal_bsp_viewer::{
+use opensource::{
     assets::Assets, props::static_props, render_scene, scene::Scene, studio::decode,
 };
 fn main() -> Result<(), String> {

@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, texture::decode_vtf};
+use opensource::{assets::Assets, texture::decode_vtf};
 #[test]
 fn real_vtf_top_mip_is_decoded_and_truncation_rejected() {
     let fs = Assets::from_game("../portal-original/portal", None).unwrap();

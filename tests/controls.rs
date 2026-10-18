@@ -1,4 +1,4 @@
-use portal_bsp_viewer::play::{Action, Controls};
+use opensource::play::{Action, Controls};
 use winit::keyboard::KeyCode;
 #[test]
 fn escape_releases_capture_and_clears_held_movement() {

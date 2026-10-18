@@ -1,5 +1,5 @@
 //! Headless counterpart to SOURCE_CHAMBER01_SMOKE, sharing its input-only route.
-use portal_bsp_viewer::{
+use opensource::{
     assets::Assets,
     chamber01_route::Route,
     entity::Runtime,

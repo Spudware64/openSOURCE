@@ -1,4 +1,4 @@
-use portal_bsp_viewer::play::*;
+use opensource::play::*;
 #[test]
 fn real_brush_models_are_transformed_and_can_move_collision() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

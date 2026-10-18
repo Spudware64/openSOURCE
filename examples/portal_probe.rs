@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{assets::Assets, portal::Surfaces};
+use opensource::{assets::Assets, portal::Surfaces};
 fn main() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();

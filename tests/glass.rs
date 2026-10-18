@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, scene::Scene};
+use opensource::{assets::Assets, scene::Scene};
 #[test]
 fn refract_glass_has_translucent_coverage_instead_of_error_texture() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

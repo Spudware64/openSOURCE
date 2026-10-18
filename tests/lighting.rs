@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, scene::Scene};
+use opensource::{assets::Assets, scene::Scene};
 #[test]
 fn props_use_baked_coloured_light_instead_of_fixed_directional_white() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
@@ -20,6 +20,6 @@ fn overbright_lightmaps_preserve_rgb_chromaticity() {
     }
     let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
     let s = Scene::load(&b, &fs).unwrap();
-    let p = (2 * portal_bsp_viewer::scene::LIGHT_SIZE + 2) * 4;
+    let p = (2 * opensource::scene::LIGHT_SIZE + 2) * 4;
     assert_eq!(&s.lightmap[p..p + 3], &[255, 128, 64]);
 }

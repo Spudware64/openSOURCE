@@ -1,4 +1,4 @@
-use portal_bsp_viewer::*;
+use opensource::*;
 #[test]
 fn rejects_unknown_face_layout() {
     let mut b = std::fs::read("../portal-original/portal/maps/background2.bsp").unwrap();

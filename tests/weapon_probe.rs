@@ -1,5 +1,5 @@
 //! Installed-original-asset lifecycle audit; includes advanced and escape maps.
-use portal_bsp_viewer::{assets::Assets,entity::{Runtime,parse_entities}};
+use opensource::{assets::Assets,entity::{Runtime,parse_entities}};
 #[test]
 fn all_installed_maps_preserve_inventory_and_remove_only_loadout_copies(){
  let fs=Assets::from_game("../portal-original/portal",None).unwrap();
@@ -7,7 +7,7 @@ fn all_installed_maps_preserve_inventory_and_remove_only_loadout_copies(){
  for entry in std::fs::read_dir("../portal-original/portal/maps").unwrap(){
  let path=entry.unwrap().path();if path.extension().is_none_or(|e|e!="bsp"){continue;}
  let map=path.file_stem().unwrap().to_str().unwrap();let b=fs.read(&format!("maps/{map}.bsp")).unwrap();
- let entities=parse_entities(portal_bsp_viewer::lump(&b,0,1).unwrap()).unwrap();
+ let entities=parse_entities(opensource::lump(&b,0,1).unwrap()).unwrap();
  let mut r=Runtime::new(&b).unwrap();r.direct_launch_loadout();
  let expected=if map.ends_with("_00") && map.starts_with("testchmb") || map=="testchmb_a_01" || map.starts_with("background"){[false,false]}else if matches!(map,"testchmb_a_02"|"testchmb_a_03"|"testchmb_a_04"|"testchmb_a_05"|"testchmb_a_06"|"testchmb_a_07"){[true,false]}else{[true,true]};
  assert_eq!(r.portal_inventory,expected,"direct {map}");

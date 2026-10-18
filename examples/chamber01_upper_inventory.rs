@@ -1,10 +1,10 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::World;
+use opensource::play::World;
 fn main() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_01.bsp").unwrap();
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
-    let surfaces = portal_bsp_viewer::portal::Surfaces::load(&b, &fs).unwrap();
+    let surfaces = opensource::portal::Surfaces::load(&b, &fs).unwrap();
     for f in surfaces.faces.iter().filter(|f| f.allowed) {
         let c = f.points.iter().copied().sum::<Vec3>() / f.points.len() as f32;
         if c.x < -1000. && c.z > 500. {

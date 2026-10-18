@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::{
+use opensource::{
     assets::Assets,
     entity::{parse_entities, Runtime},
     play::{Player, World},
@@ -7,8 +7,8 @@ use portal_bsp_viewer::{
 };
 fn main() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
-    let es = parse_entities(portal_bsp_viewer::lump(&b, 0, 1).unwrap()).unwrap();
-    let base = portal_bsp_viewer::lump(&b, 14, 48).unwrap().len() / 48;
+    let es = parse_entities(opensource::lump(&b, 0, 1).unwrap()).unwrap();
+    let base = opensource::lump(&b, 14, 48).unwrap().len() / 48;
     let n = es
         .iter()
         .filter(|e| e.get("classname") == Some("prop_physics"))

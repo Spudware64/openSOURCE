@@ -1,7 +1,7 @@
-use portal_bsp_viewer::audio::SoundBank;
+use opensource::audio::SoundBank;
 #[test]
 fn authored_sound_is_once_at_dispatch_time() {
-    use portal_bsp_viewer::{
+    use opensource::{
         entity::{parse_entities, Runtime},
         play::{Player, World},
     };
@@ -21,7 +21,7 @@ fn authored_sound_is_once_at_dispatch_time() {
 #[test]
 fn movement_events_are_edge_triggered() {
     use glam::Vec3;
-    use portal_bsp_viewer::{audio::MovementAudio, play::Player};
+    use opensource::{audio::MovementAudio, play::Player};
     let mut state = MovementAudio::default();
     let mut p = Player::new(Vec3::ZERO, 0.);
     p.grounded = true;
@@ -40,7 +40,7 @@ fn movement_events_are_edge_triggered() {
 #[test]
 #[ignore = "requires read-only original Portal assets; SOURCE_AUDIO_GAME may override root"]
 fn original_assets_decode_to_nonzero_pcm() {
-    use portal_bsp_viewer::{assets::Assets, audio::decode};
+    use opensource::{assets::Assets, audio::decode};
     let root = std::env::var("SOURCE_AUDIO_GAME").unwrap_or("../portal-original/portal".into());
     let fs = Assets::from_game(root, None).unwrap();
     let bank = SoundBank::load(&fs).unwrap();

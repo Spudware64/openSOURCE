@@ -1,4 +1,4 @@
-use portal_bsp_viewer::props::static_props;
+use opensource::props::static_props;
 #[test]
 fn malformed_game_lump_versions_counts_and_prop_indices_are_rejected() {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();

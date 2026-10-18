@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{
+use opensource::{
     entity::Runtime,
     play::{Player, World},
 };
@@ -8,12 +8,12 @@ fn actual_entry_scene_completes_before_authored_entrance_opens() {
     let mut r = Runtime::new(&b).unwrap();
     let mut w = World::parse(&b).unwrap();
     let mut p = Player::new(w.spawn, w.yaw);
-    let fs = portal_bsp_viewer::assets::Assets::from_game("../portal-original/portal", Some(&b))
+    let fs = opensource::assets::Assets::from_game("../portal-original/portal", Some(&b))
         .unwrap();
     let durations =
-        portal_bsp_viewer::scenes::durations(&fs.read("scenes/scenes.image").unwrap()).unwrap();
+        opensource::scenes::durations(&fs.read("scenes/scenes.image").unwrap()).unwrap();
     assert_eq!(
-        durations[&portal_bsp_viewer::scenes::scene_crc("scenes/test_chamber/ai_01_a_entry.vcd")],
+        durations[&opensource::scenes::scene_crc("scenes/test_chamber/ai_01_a_entry.vcd")],
         21.039
     );
     r.bind_scene_timing(&durations);

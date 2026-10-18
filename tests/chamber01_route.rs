@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{
+use opensource::{
     assets::Assets,
     chamber01_route::Route,
     entity::Runtime,
@@ -64,7 +64,7 @@ fn continuous_authored_spawn_to_chamber02() {
     assert_eq!(p.portal_crossings, 4);
     assert!(!p.noclip);
     let request = r.change_level.take().unwrap();
-    let root = portal_bsp_viewer::session::GameRoot::new("../portal-original/portal", 4).unwrap();
+    let root = opensource::session::GameRoot::new("../portal-original/portal", 4).unwrap();
     let mut next = root.prepare(&request, &p, true).unwrap();
     next.runtime
         .enter_transition(&r, next.player.position - p.position);

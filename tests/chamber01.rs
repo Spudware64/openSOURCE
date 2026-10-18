@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{
+use opensource::{
     entity::Runtime,
     play::{Player, World},
 };
@@ -31,7 +31,7 @@ fn actual_rotating_pedestal_completes_authored_open_close_cycle() {
 }
 #[test]
 fn authored_relay_fires_automatic_portal_at_current_parented_aim() {
-    use portal_bsp_viewer::{
+    use opensource::{
         assets::Assets,
         portal::{Game, Surfaces},
     };

@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::portal::{Portal, Surface, Surfaces, HALF_HEIGHT, HALF_WIDTH};
+use opensource::portal::{Portal, Surface, Surfaces, HALF_HEIGHT, HALF_WIDTH};
 
 fn panel(p: Portal, width: f32, height: f32) -> Surface {
     Surface {
@@ -101,7 +101,7 @@ fn connected_seams_cover_the_whole_aperture_without_requiring_one_face() {
 
 #[test]
 fn actual_chamber_edge_shot_fits_and_player_replacement_keeps_channel_rules() {
-    use portal_bsp_viewer::{assets::Assets, entity::Runtime, play::World, portal::Game};
+    use opensource::{assets::Assets, entity::Runtime, play::World, portal::Game};
     let bytes = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp").unwrap();
     let assets = Assets::from_game("../portal-original/portal", Some(&bytes)).unwrap();
     let surfaces = Surfaces::load(&bytes, &assets).unwrap();

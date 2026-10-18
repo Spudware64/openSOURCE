@@ -1,5 +1,5 @@
 use glam::Vec3;
-use portal_bsp_viewer::play::*;
+use opensource::play::*;
 fn box_brush(lo: Vec3, hi: Vec3) -> Vec<Plane> {
     vec![
         Plane {

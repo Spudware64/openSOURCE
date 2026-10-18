@@ -1,4 +1,4 @@
-use portal_bsp_viewer::{assets::Assets, play::World, scene::Scene};
+use opensource::{assets::Assets, play::World, scene::Scene};
 use std::io::Write;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let b = std::fs::read("../portal-original/portal/maps/testchmb_a_00.bsp")?;
