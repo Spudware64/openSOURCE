@@ -1,93 +1,84 @@
 # openSOURCE
 
-### *disclamer:* this was written by hermes agent, all code and readme exept this here 💪🏻
+> Code and documentation generated with Hermes Agent; project direction and testing by Joshua Montano (Spudware64). 💪
 
-SUPPORTED GAMES:
-Portal - Partial, buggy.
-Portal 2 - Not tested, don't get your hopes up.
-Half-life - NOT POSSIBLE, USES DIFFERENT ENGINE,
-Half-life Source - Probably does not work.
-HL2 - Probably does not work.
+An experimental Source 1 reimplementation written in Rust, with **wgpu** rendering and **Rapier/Parry** physics and collision queries. Currently focused on Portal.
 
-An experimental Source 1 reimplementation in **Rust**, using **wgpu** for rendering and **Rapier/Parry** for physics and collision queries. Portal is the primary development target.
+> **Early development.** Gameplay and compatibility are incomplete. Requires your own Portal installation; Valve assets are not included.
 
-**Work in progress:** this is not a complete replacement for Source or a fully compatible Portal engine. It does not execute Valve’s game DLLs.
+## Getting started
 
-## Requirements
-
-- Rust and Cargo, installed through [rustup](https://rustup.rs/).
-- A supported GPU and graphics driver.
-- Your own Portal installation. Point `--game` at the `portal` directory containing `gameinfo.txt`.
-- Windows builds require the MSVC C++ build tools and Windows SDK.
-
-## Build and run
+Install [Rust](https://rustup.rs/), Git and up-to-date graphics drivers. Windows also requires the MSVC C++ build tools and Windows SDK.
 
 ```sh
 git clone https://github.com/Spudware64/openSOURCE.git
 cd openSOURCE
-cargo build
-cargo run -- --game "/path/to/Portal/portal" --map maps/testchmb_a_00.bsp --play
+cargo run --release -- --game "/path/to/Portal/portal" --map maps/testchmb_a_00.bsp --play
 ```
 
-For an optimised release build, use `cargo build --release`. Executables are named `openSOURCE` (`openSOURCE.exe` on Windows).
+The game path must point to the directory containing `gameinfo.txt`. Change `--map` to start another chamber.
 
-### Windows launcher
+### Windows helper
 
-From PowerShell in the checkout:
+The PowerShell script pulls the latest source and builds debug. Add `-Run` to launch:
 
 ```powershell
-.\update-debug.ps1                       # Pull and build debug
-.\update-debug.ps1 -Run                  # Also launch Chamber 00
-.\update-debug.ps1 -Run -Map "maps/testchmb_a_03.bsp"
+.\update-debug.ps1 -Run -GamePath "C:\Program Files (x86)\Steam\steamapps\common\Portal\portal"
 ```
 
-The default game path is `C:\.programs\Steam\steamapps\common\Portal\portal`. Override it for your installation:
+Choose a different chamber with `-Map "maps/testchmb_a_03.bsp"`. Without `-GamePath`, the script defaults to `C:\.programs\Steam\steamapps\common\Portal\portal`.
 
-```powershell
-.\update-debug.ps1 -Run -GamePath "D:\SteamLibrary\steamapps\common\Portal\portal"
-```
-
-The script stops if pulling or building fails and does not reset local changes or alter security policies.
+For a standalone build, use `cargo build` or `cargo build --release`. The executable is `openSOURCE` (`openSOURCE.exe` on Windows), under `target/debug/` or `target/release/`.
 
 ## Controls
 
-Click the window to capture the mouse; press **Esc** to release it.
+Click to capture the mouse; **Esc** releases it.
 
-- **WASD / mouse:** move / look
-- **Space / left Ctrl:** jump / crouch
-- **E:** interact, pick up or drop
-- **F:** throw a held object
-- **Left / right mouse:** fire available portal channels
-- **R:** respawn; **N:** toggle noclip
+| Input | Action |
+| --- | --- |
+| WASD / mouse | Move / look |
+| Space / left Ctrl | Jump / crouch |
+| E | Use, pick up or drop |
+| F | Throw a held object |
+| Left / right mouse | Fire available portal channels |
+| R / N | Respawn / toggle noclip |
 
-Gun ownership and available portal channels depend on the map and progression.
+Gun ownership and portal channels depend on the map and progression.
 
-## Current scope
+## Features and limitations
 
-- Source game-directory loading, VPK archives and BSP maps.
-- Textures, baked lightmaps, static props and a subset of skeletal animation.
-- First-person movement, entity I/O, doors, buttons, platforms and map transitions.
-- Linked portal rendering and traversal, cube interactions and energy-pellet mechanics.
-- Portal-gun viewmodel animation and basic original-asset sound playback.
+- BSP maps, VPK archives, materials and baked lightmaps.
+- Static and animated models, including the portal-gun viewmodel.
+- Player movement, cubes, buttons, doors, platforms and entity I/O.
+- Linked portals, energy pellets, map transitions and basic sound playback.
 
-Support is incomplete and varies by map. Materials, collision, animation, entity behaviour and puzzle progression still have known gaps. Portal rendering is one-hop; full recursive views and split-body rendering are not implemented. Dialogue/choreography and full Source physics/material parity are also unfinished.
+These systems remain incomplete and vary by map. Known gaps include collision and puzzle behaviour, recursive portal views, split-body rendering, dialogue/choreography and full Source material/physics parity. Proprietary game DLLs are not executed.
 
-## Diagnostics and development
+## Game compatibility
+
+- **Portal:** partial support; bugs and missing features remain.
+- **Portal 2:** untested and unsupported; do not assume compatibility.
+- **Half-Life (original):** uses GoldSrc, a different engine; outside this project’s scope.
+- **Half-Life: Source / Half-Life 2:** unsupported and unverified.
+
+## Development
+
+```sh
+cargo check --all-targets
+```
+
+Tests include both synthetic fixtures and asset-dependent cases; the latter require a local Portal installation. Known failures are documented in [AGENTS.md](AGENTS.md) and subsystem notes.
+
+For a bug report, include the build identifier, map and reproduction steps. Capture controller logs with:
 
 ```powershell
 .\update-debug.ps1 -Run -Trace -TraceSeconds 300
 ```
 
-This creates a timestamped folder under `logs/` with `console.log` and `controller.csv`. Include the build identifier, map and reproduction steps when reporting a bug.
+Logs are written to a timestamped directory under `logs/`.
 
-- [Controller tracing](CONTROLLER_TRACE.md)
-- [Frame profiling](FRAME_PROFILING.md)
-- [Physics architecture and migration limits](PHYSICS_MIGRATION.md)
-- [Audio support](docs/audio.md)
-- [Historical development notes](docs/development-history.md)
+**Further documentation:** [controller tracing](CONTROLLER_TRACE.md) · [frame profiling](FRAME_PROFILING.md) · [physics](PHYSICS_MIGRATION.md) · [audio](docs/audio.md)
 
-`cargo check --all-targets` checks compilation. Tests cover both synthetic fixtures and original game assets; asset-dependent tests require the corresponding local installation/layout. Some known regressions remain—see [AGENTS.md](AGENTS.md) and the relevant subsystem notes. Do not interpret historical test totals as a current clean-suite guarantee.
+## Licence
 
-## Licence and game assets
-
-Project source is distributed under the [MIT licence](LICENSE). **Valve game assets are not included and are not covered by this licence.** Supply your own installation. Generated captures, builds and local reverse-engineering evidence are excluded from the repository.
+Source code is licensed under [MIT](LICENSE). Valve game assets remain subject to their own terms and are not distributed with this project. Builds, captures and local reverse-engineering evidence are excluded from the repository.
