@@ -4,7 +4,7 @@
 
 An experimental Source 1 reimplementation written in Rust, with **wgpu** rendering and **Rapier/Parry** physics and collision queries. Currently focused on Portal.
 
-> **Early development.** Gameplay and compatibility are incomplete. Requires your own Portal installation; Valve assets are not included.
+> **Only Portal 1 has been tested, and its implementation is not complete.** Bugs, missing features and unfinished puzzles remain; a full play-through is not guaranteed. Other games have not been tested. Requires your own Portal 1 installation; Valve assets are not included.
 
 ## Getting started
 
@@ -56,7 +56,7 @@ These systems remain incomplete and vary by map. Known gaps include collision an
 
 ## Game compatibility
 
-- **Portal:** partial support; bugs and missing features remain.
+- **Portal 1:** the only tested game; implementation is incomplete, with bugs and missing features.
 - **Portal 2:** untested and unsupported; do not assume compatibility.
 - **Half-Life (original):** uses GoldSrc, a different engine; outside this project’s scope.
 - **Half-Life: Source / Half-Life 2:** unsupported and unverified.
