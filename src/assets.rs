@@ -315,3 +315,13 @@ pub fn map_name(path: &str) -> Option<&str> {
         None
     }
 }
+
+/// Resolve a map selector through the same asset lookup used at startup.
+pub fn read_selected_map(fs: &Assets, map: &str) -> Result<Vec<u8>, String> {
+    let name = map.strip_prefix("maps/").unwrap_or(map);
+    let name = name.strip_suffix(".bsp").unwrap_or(name);
+    if map_name(&format!("{name}.bsp")) != Some(name) {
+        return Err("unsafe map name".into());
+    }
+    fs.read(&format!("maps/{name}.bsp"))
+}

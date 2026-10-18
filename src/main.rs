@@ -103,7 +103,7 @@ fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let bytes = if std::path::Path::new(map).is_absolute() {
         std::fs::read(map)?
     } else {
-        fs.read(map)?
+        opensource::assets::read_selected_map(&fs, map)?
     };
     let fs = Assets::from_game(game, Some(&bytes))?;
     println!(

@@ -1,4 +1,16 @@
 use opensource::session::GameRoot;
+use opensource::assets::{Assets, read_selected_map};
+
+#[test]
+fn every_discovered_native_selector_reaches_startup_lookup() {
+    let root = GameRoot::new("../portal-original/portal", 4).unwrap();
+    let fs = Assets::from_game("../portal-original/portal", None).unwrap();
+    let maps = root.maps().unwrap();
+    assert!(!maps.is_empty());
+    for map in maps {
+        assert!(!read_selected_map(&fs, &map).unwrap().is_empty(), "{map}");
+    }
+}
 
 #[test]
 fn selected_map_loads_at_its_authored_spawn_and_rejects_paths() {
