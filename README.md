@@ -2,6 +2,12 @@
 
 ### *disclamer:* this was written by hermes agent, all code and readme exept this here 💪🏻
 
+SUPPORTED GAMES:
+Portal - Partial, buggy.
+Portal 2 - Not tested, don't get your hopes up.
+Half-life - NOT POSSIBLE, USES DIFFERENT ENGINE,
+Half-life Source - Probably does not work.
+HL2 - Probably does not work.
 
 An experimental Source 1 reimplementation in **Rust**, using **wgpu** for rendering and **Rapier/Parry** for physics and collision queries. Portal is the primary development target.
 
