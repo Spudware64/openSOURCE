@@ -1,5 +1,8 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
+    if starts_setup(&args) {
+        return opensource::setup::open().map_err(Into::into);
+    }
     if args.get(1).is_some_and(|s| s == "--game") {
         return game_cli(&args[1..]);
     }
@@ -7,7 +10,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return opensource::interactive(&std::fs::read(&args[2])?).map_err(Into::into);
     }
     if args.len() != 3 && args.len() != 9 {
-        return Err("usage: openSOURCE MAP.bsp OUTPUT.png [eye_x eye_y eye_z target_x target_y target_z]".into());
+        return Err(
+            "usage: openSOURCE MAP.bsp OUTPUT.png [eye_x eye_y eye_z target_x target_y target_z]"
+                .into(),
+        );
     }
     let camera = if args.len() == 9 {
         let n: Vec<f32> = args[3..]
@@ -85,7 +91,11 @@ fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     let game = game.ok_or("--game must select a directory containing gameinfo.txt")?;
     let map = map.ok_or("--map required")?;
-    println!("startup: build={} exe={:?} game={game:?} map={map:?} play={play}", env!("SOURCE_BUILD_GIT"), std::env::current_exe());
+    println!(
+        "startup: build={} exe={:?} game={game:?} map={map:?} play={play}",
+        env!("SOURCE_BUILD_GIT"),
+        std::env::current_exe()
+    );
     if play == output.is_some() {
         return Err("select either --play or --output FILE.png".into());
     }
@@ -108,15 +118,13 @@ fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
     if play {
         let portal_override = std::env::var("SOURCE_PORTALS").ok();
-        let surfaces =
-            if opensource::portal::rules_enabled(&bytes, portal_override.as_deref())? {
-                Some(opensource::portal::Surfaces::load(&bytes, &fs)?)
-            } else {
-                None
-            };
+        let surfaces = if opensource::portal::rules_enabled(&bytes, portal_override.as_deref())? {
+            Some(opensource::portal::Surfaces::load(&bytes, &fs)?)
+        } else {
+            None
+        };
         let root = opensource::session::GameRoot::new(game, workers)?;
-        return opensource::interactive_game(&bytes, scene, surfaces, root)
-            .map_err(Into::into);
+        return opensource::interactive_game(&bytes, scene, surfaces, root).map_err(Into::into);
     }
     let pixels = opensource::render_scene(&scene, 1024, 768, camera)?;
     let output = output.unwrap();
@@ -130,4 +138,28 @@ fn game_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     encoder.write_header()?.write_image_data(&pixels)?;
     println!("wrote {output} (1024x768)");
     Ok(())
+}
+
+fn starts_setup(args: &[String]) -> bool {
+    args.len() == 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::starts_setup;
+    #[test]
+    fn no_arguments_enter_setup() {
+        assert!(starts_setup(&["openSOURCE".into()]));
+        assert!(!starts_setup(&[
+            "openSOURCE".into(),
+            "--play".into(),
+            "test.bsp".into()
+        ]));
+        assert!(!starts_setup(&[
+            "openSOURCE".into(),
+            "map.bsp".into(),
+            "out.png".into()
+        ]));
+        assert!(!starts_setup(&["openSOURCE".into(), "--game".into()]));
+    }
 }

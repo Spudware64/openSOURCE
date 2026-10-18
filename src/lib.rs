@@ -5,6 +5,7 @@ pub mod audio;
 mod mesh_collision;
 pub mod portal;
 pub mod session;
+pub mod setup;
 pub fn validate(b: &[u8]) -> Result<(), String> {
     if b.len() < 1036 || &b[..4] != b"VBSP" {
         return Err("invalid VBSP header".into());
