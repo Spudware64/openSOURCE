@@ -1,5 +1,7 @@
 # openSOURCE
 
+#### *disclamer:* this was written by hermes agent, all code and readme exept this here 💪🏻
+
 An experimental Source 1 reimplementation in **Rust**, using **wgpu** for rendering and **Rapier/Parry** for physics and collision queries. Portal is the primary development target.
 
 **Work in progress:** this is not a complete replacement for Source or a fully compatible Portal engine. It does not execute Valve’s game DLLs.
