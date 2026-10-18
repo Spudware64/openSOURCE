@@ -35,12 +35,27 @@ fn interactive_impl(
     mut surfaces: Option<crate::portal::Surfaces>,
     root: Option<crate::session::GameRoot>,
 ) -> Result<(), String> {
-    let audio = root.as_ref().map(|r|r.audio(bytes)).transpose()?;
+    let audio = root.as_ref().map(|r| r.audio(bytes)).transpose()?;
     let mut controller_trace = crate::controller_trace::open()?;
-    let trace_exe = if controller_trace.is_some() { std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() } else { String::new() };
-    let mut trace_map = if controller_trace.is_some() { let args: Vec<_> = std::env::args().collect(); args.windows(2).find(|a| a[0] == "--map").map(|a| a[1].clone()).or_else(|| args.get(2).cloned()).unwrap_or_default() } else { String::new() };
-    let mut movement_audio=crate::audio::MovementAudio::default();
-    let mut audio_time=0.;
+    let trace_exe = if controller_trace.is_some() {
+        std::env::current_exe()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let mut trace_map = if controller_trace.is_some() {
+        let args: Vec<_> = std::env::args().collect();
+        args.windows(2)
+            .find(|a| a[0] == "--map")
+            .map(|a| a[1].clone())
+            .or_else(|| args.get(2).cloned())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let mut movement_audio = crate::audio::MovementAudio::default();
+    let mut audio_time = 0.;
     let mut trace_tick = 0u64;
     let mut world = World::parse(bytes)?;
     let mut runtime = crate::entity::Runtime::new(bytes)?;
@@ -97,13 +112,46 @@ fn interactive_impl(
     }
     // Normal chamber recording: authored spawn and outputs, ordinary walking only.
     let normal_capture = std::env::var("SOURCE_NORMAL_CAPTURE").ok();
-    if let Some(dir) = &normal_capture { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+    if let Some(dir) = &normal_capture {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let mut normal_encoder = if let Some(dir) = &normal_capture {
-        Some(std::process::Command::new("ffmpeg").args(["-y","-loglevel","error","-f","image2pipe","-framerate","30","-i","pipe:0","-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p","-movflags","+faststart", &format!("{dir}/../chamber04-normal.mp4")]).stdin(std::process::Stdio::piped()).spawn().map_err(|e|e.to_string())?)
-    } else { None };
+        Some(
+            std::process::Command::new("ffmpeg")
+                .args([
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "image2pipe",
+                    "-framerate",
+                    "30",
+                    "-i",
+                    "pipe:0",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "fast",
+                    "-crf",
+                    "23",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    &format!("{dir}/../chamber04-normal.mp4"),
+                ])
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
     let mut normal_launched = false;
     let pellet_demo = std::env::var("SOURCE_PELLET_DEMO").ok();
-    if let Some(dir) = &pellet_demo { std::fs::create_dir_all(dir).map_err(|e|e.to_string())?; }
+    if let Some(dir) = &pellet_demo {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let mut pellet_crossed = false;
     let mut pellet_caught = false;
     let demo = std::env::var("SOURCE_DOOR_DEMO").ok();
@@ -158,7 +206,10 @@ fn interactive_impl(
         .transpose()?;
     // Own GPU scene/uniforms: never upload this camera into linked world views.
     let mut weapon_scene = root.as_ref().map(|r| r.weapon_viewmodel()).transpose()?;
-    let weapon_gpu = weapon_scene.as_ref().map(|s| crate::scene_gpu::GpuScene::new(&device,&queue,s,config.format)).transpose()?;
+    let weapon_gpu = weapon_scene
+        .as_ref()
+        .map(|s| crate::scene_gpu::GpuScene::new(&device, &queue, s, config.format))
+        .transpose()?;
     let mut weapon_sequence = "draw";
     let mut weapon_started = Instant::now();
     let mut weapon_owned = false;
@@ -262,6 +313,34 @@ fn interactive_impl(
         crate::portal_gpu::PortalGpu::new(&device, config.format, config.width, config.height)
     });
     let mut player = Player::new(world.spawn, world.yaw);
+    let egui_ctx = egui::Context::default();
+    let mut egui_state = egui_winit::State::new(
+        egui_ctx.clone(),
+        egui::ViewportId::ROOT,
+        &*window,
+        Some(window.scale_factor() as f32),
+        None,
+    );
+    let mut egui_renderer = egui_wgpu::Renderer::new(&device, config.format, None, 1);
+    let gui_smoke = std::env::var_os("SOURCE_GUI_SMOKE").is_some();
+    let mut gui_open = gui_smoke;
+    let mut maps = root
+        .as_ref()
+        .map(|r| r.maps())
+        .transpose()?
+        .unwrap_or_default();
+    let mut selected_map = std::env::args()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find(|a| a[0] == "--map")
+        .and_then(|a| std::path::Path::new(&a[1]).file_stem())
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if selected_map.is_empty() && !maps.is_empty() {
+        selected_map = maps[0].clone();
+    }
+    let mut map_filter = String::new();
+    let mut gui_error = String::new();
     let mut controls = crate::play::Controls::default();
     let mut last = Instant::now();
     let mut accumulator = 0f32;
@@ -285,8 +364,16 @@ fn interactive_impl(
     }
     if matches!(parity.as_deref(), Some("elevator" | "support-boundary")) {
         player.position = Vec3::new(-1472., -864., 200.);
-        player.yaw = if parity.as_deref() == Some("support-boundary") {std::f32::consts::FRAC_PI_2} else {0.};
-        player.pitch = if parity.as_deref() == Some("support-boundary") {-0.45} else {0.};
+        player.yaw = if parity.as_deref() == Some("support-boundary") {
+            std::f32::consts::FRAC_PI_2
+        } else {
+            0.
+        };
+        player.pitch = if parity.as_deref() == Some("support-boundary") {
+            -0.45
+        } else {
+            0.
+        };
     }
     if parity.as_deref() == Some("elevator-entry") {
         player.position = Vec3::new(-1360., -864., 144.1);
@@ -316,11 +403,24 @@ fn interactive_impl(
                 Event::DeviceEvent {
                     event: DeviceEvent::MouseMotion { delta },
                     ..
-                } if controls.captured => {
+                } if controls.captured && !gui_open => {
                     player.yaw -= delta.0 as f32 * 0.002;
                     player.pitch = (player.pitch - delta.1 as f32 * 0.002).clamp(-1.5, 1.5);
                 }
-                Event::WindowEvent { event, .. } => match event {
+                Event::WindowEvent { event, .. } => {
+                    if let WindowEvent::KeyboardInput { event: key_event, .. } = &event {
+                        if key_event.physical_key == PhysicalKey::Code(KeyCode::F1) && key_event.state == ElementState::Pressed && !key_event.repeat {
+                            gui_open = !gui_open;
+                            controls.keys.clear();
+                            controls.captured = false;
+                            let _ = window.set_cursor_grab(CursorGrabMode::None);
+                            window.set_cursor_visible(true);
+                            window.request_redraw();
+                            return;
+                        }
+                    }
+                    if gui_open { let _ = egui_state.on_window_event(&window, &event); }
+                    match event {
                     WindowEvent::CloseRequested => target.exit(),
                     WindowEvent::Focused(false) => {
                         controls.keys.clear();
@@ -332,7 +432,7 @@ fn interactive_impl(
                         state: ElementState::Pressed,
                         button,
                         ..
-                    } if button==MouseButton::Left || button==MouseButton::Right => {
+                    } if !gui_open && (button==MouseButton::Left || button==MouseButton::Right) => {
                         if controls.captured {
                             let eye=player.position+Vec3::Z*player.eye_height();
                             let channel=usize::from(button==MouseButton::Right);
@@ -347,7 +447,7 @@ fn interactive_impl(
                         window.set_cursor_visible(!controls.captured);
                         println!("cursor controls.captured: {}", controls.captured);
                     }
-                    WindowEvent::KeyboardInput { event, .. } => {
+                    WindowEvent::KeyboardInput { event, .. } if !gui_open => {
                         if let PhysicalKey::Code(key) = event.physical_key {
                             if event.state == ElementState::Pressed {
                                 controls.keys.insert(key);
@@ -654,6 +754,7 @@ fn interactive_impl(
                                     drop(textured.take()); drop(scene.take());
                                     textured=Some(gpu);scene=Some(next.scene);world=next.world;runtime=next.runtime;
                                     if controller_trace.is_some() { trace_map = request.map.clone(); }
+                                    selected_map = request.map.clone();
                                     player=next.player;portal_game=next.game;surfaces=next.surfaces;
                                     render_position = crate::play::RenderPosition::default();
                                     controls=crate::play::Controls::default();accumulator=0.;last=Instant::now();
@@ -814,6 +915,66 @@ fn interactive_impl(
                                 gpu.draw(&mut pass);
                             }
                         }
+                        let mut requested_map = None;
+                        if gui_open {
+                            let raw = egui_state.take_egui_input(&window);
+                            let output = egui_ctx.run(raw, |ctx| {
+                                egui::Window::new("openSOURCE debug").default_width(370.).show(ctx, |ui| {
+                                    ui.label("F1 closes this panel. Click the game to recapture mouse.");
+                                    ui.separator();
+                                    ui.heading("Map");
+                                    if root.is_some() {
+                                        ui.horizontal(|ui| {
+                                            ui.label(format!("{} available", maps.len()));
+                                            if ui.button("Refresh").clicked() {
+                                                match root.as_ref().unwrap().maps() { Ok(found) => maps = found, Err(e) => gui_error = e }
+                                            }
+                                        });
+                                        ui.text_edit_singleline(&mut map_filter);
+                                        egui::ScrollArea::vertical().max_height(150.).show(ui, |ui| {
+                                            for name in &maps {
+                                                if name.contains(&map_filter.to_ascii_lowercase()) && ui.selectable_label(selected_map == *name, name).clicked() {
+                                                    selected_map = name.clone();
+                                                }
+                                            }
+                                        });
+                                        if ui.button("Load / reload selected map").clicked() { requested_map = Some(selected_map.clone()); }
+                                    } else { ui.label("Map loading requires --game and --map."); }
+                                    if !gui_error.is_empty() { ui.colored_label(egui::Color32::RED, &gui_error); }
+                                    ui.separator();
+                                    ui.heading("Player");
+                                    ui.label(format!("Position: {:.1}, {:.1}, {:.1}", player.position.x, player.position.y, player.position.z));
+                                    ui.label(format!("Velocity: {:.1}, {:.1}, {:.1} | grounded {}", player.velocity.x, player.velocity.y, player.velocity.z, player.grounded));
+                                    ui.label(format!("Yaw {:.2} | pitch {:.2}", player.yaw, player.pitch));
+                                    if ui.button("Respawn (R)").clicked() { player = Player::new(world.spawn, world.yaw); render_position = crate::play::RenderPosition::default(); }
+                                    ui.checkbox(&mut player.noclip, "Noclip (N)");
+                                    ui.separator();
+                                    ui.heading("Renderer / runtime");
+                                    ui.label(format!("Frame {} | {:.1} ms | {:.0} FPS", frames, trace_frame_dt * 1000., 1. / trace_frame_dt.max(0.0001)));
+                                    ui.label(format!("Surface {}x{} {:?}", config.width, config.height, config.format));
+                                    ui.label(format!("Triangles {} | materials {} | lightmapped faces {}", scene.as_ref().map_or(vertices.len()/3, |s| s.vertices.len()/3), scene.as_ref().map_or(0, |s| s.textures.len()), scene.as_ref().map_or(0, |s| s.lightmapped_faces)));
+                                    ui.label(format!("Brushes {} | models {} | visible {}", world.brushes.len(), runtime.origins.len(), runtime.visible.iter().filter(|v| **v).count()));
+                                    ui.label(format!("Portals {}/2 | portal inventory {:?} | pellets {}", world.portals.iter().filter(|p| p.is_some()).count(), runtime.portal_inventory, runtime.pellets.len()));
+                                    ui.label(format!("Unknown entity inputs {}", runtime.unknown_inputs.len()));
+                                });
+                            });
+                            egui_state.handle_platform_output(&window, output.platform_output);
+                            let pixels_per_point = window.scale_factor() as f32;
+                            let paint_jobs = egui_ctx.tessellate(output.shapes, pixels_per_point);
+                            let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [config.width, config.height], pixels_per_point };
+                            for (id, delta) in &output.textures_delta.set { egui_renderer.update_texture(&device, &queue, *id, delta); }
+                            let extra = egui_renderer.update_buffers(&device, &queue, &mut enc, &paint_jobs, &screen);
+                            for buffer in extra { queue.submit(Some(buffer)); }
+                            {
+                                let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("egui overlay"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: &cv, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
+                                    depth_stencil_attachment: None, timestamp_writes: None, occlusion_query_set: None,
+                                });
+                                egui_renderer.render(&mut pass, &paint_jobs, &screen);
+                            }
+                            for id in &output.textures_delta.free { egui_renderer.free_texture(id); }
+                        }
                         crate::frame_profile::mark(6);
                         queue.submit(Some(enc.finish()));
                         if std::env::var_os("SOURCE_WEAPON_DEMO").is_some() && [30,120,150,160,175,220].contains(&frames) {
@@ -942,9 +1103,29 @@ fn interactive_impl(
                         }
                         crate::frame_profile::mark(8);
                         frame.present();
+                            if let Some(map) = requested_map {
+                                match root.as_ref().unwrap().load_map(&map, surfaces.is_some()) {
+                                    Ok(next) => match crate::scene_gpu::GpuScene::new(&device, &queue, &next.scene, config.format) {
+                                        Ok(gpu) => {
+                                            device.poll(wgpu::Maintain::Wait);
+                                            textured = Some(gpu); scene = Some(next.scene); world = next.world; runtime = next.runtime;
+                                            player = next.player; portal_game = next.game; surfaces = next.surfaces;
+                                            render_position = crate::play::RenderPosition::default();
+                                            accumulator = 0.; last = Instant::now();
+                                            controls.keys.clear();
+                                            selected_map = map.clone();
+                                            gui_error.clear();
+                                            window.set_title(&format!("openSOURCE | {map} | F1 debug"));
+                                        }
+                                        Err(e) => gui_error = e,
+                                    },
+                                    Err(e) => gui_error = e,
+                                }
+                            }
                         crate::frame_profile::mark(9);
                         crate::frame_profile::finish();
                         frames += 1;
+                        if gui_smoke && frames == 120 { println!("egui overlay smoke rendered 120 frames"); target.exit(); }
                         if demo.is_some() && frames >= 180 {
                             println!(
                                 "door demo complete: 180 GPU-rendered frames; unsupported {:?}",
@@ -960,6 +1141,7 @@ fn interactive_impl(
                         }
                     }
                     _ => (),
+                }
                 },
                 Event::AboutToWait => window.request_redraw(),
                 _ => (),

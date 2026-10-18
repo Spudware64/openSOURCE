@@ -32,7 +32,7 @@ For a standalone build, use `cargo build` or `cargo build --release`. The execut
 
 ## Controls
 
-Click to capture the mouse; **Esc** releases it.
+Click to capture the mouse; **Esc** releases it. **F1** opens the debug overlay and releases the mouse. The overlay shows live player, renderer and runtime information, offers respawn and noclip controls, and lets you search, select, load or reload maps discovered through the game’s SearchPaths. Map loading is available when launched with `--game`. While the overlay is open, gameplay keyboard, mouse look and portal fire input are disabled. Close it with F1, then click the game to resume.
 
 | Input | Action |
 | --- | --- |
