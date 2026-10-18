@@ -272,7 +272,8 @@ impl Surfaces {
                 .ok_or("portal name terminator")?;
             let material = String::from_utf8_lossy(&name[..end]).to_lowercase();
             // Conservative Portal subset: only authored modular concrete. Other games' surface rules are unknown.
-            let mut allowed = material.starts_with("concrete/concrete_modular_")
+            let mut allowed = (material.starts_with("concrete/concrete_modular_")
+                || material.starts_with("concrete/concrete_bts_modular_"))
                 && ii(inf, 64) & (0x80 | 0x4 | 0x2 | 0x20 | 0x200) == 0
                 && uu(face, 12) == 65535;
             if allowed {
