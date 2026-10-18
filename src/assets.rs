@@ -150,6 +150,35 @@ impl Assets {
         }
         Ok(fs)
     }
+    /// BSP names visible through the same ordered search paths used by `read`.
+    pub fn maps(&self) -> Vec<String> {
+        let mut names = std::collections::BTreeSet::new();
+        for root in &self.roots {
+            if root.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(root.join("maps")) {
+                    for entry in entries.flatten() {
+                        if entry.path().is_file() {
+                            if let Some(name) = entry.file_name().to_str().and_then(map_name) {
+                                names.insert(name.to_owned());
+                            }
+                        }
+                    }
+                }
+            } else {
+                let prefix = format!("{}\0maps/", root.display());
+                for key in self
+                    .entries
+                    .keys()
+                    .filter_map(|key| key.strip_prefix(&prefix))
+                {
+                    if let Some(name) = map_name(key) {
+                        names.insert(name.to_owned());
+                    }
+                }
+            }
+        }
+        names.into_iter().collect()
+    }
     pub fn search_paths(&self) -> Vec<String> {
         self.roots
             .iter()
@@ -274,5 +303,15 @@ impl Assets {
             }
         }
         Err(format!("missing asset {key}"))
+    }
+}
+
+/// Source map identifiers accepted by the UI and map loader.
+pub fn map_name(path: &str) -> Option<&str> {
+    let name = path.strip_suffix(".bsp")?;
+    if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        Some(name)
+    } else {
+        None
     }
 }
