@@ -36,6 +36,8 @@ across its runtime update; `new_support_raw`/`new_support_resolved` identify the
 No controller physics, original assets, or elevator behavior is changed/fixed by these diagnostics.
 
 
+Open SOURCE engine. STUFF YOU VALVE!!! also its clanker generated and written in rust.
+
 ## Latest: full Chamber01 → Chamber02 route verified
 
 **A continuous route now runs from Chamber01's authored spawn through gun acquisition, middle lift, both later portal gaps and final elevator into Chamber02, without noclip, staged positions or forced puzzle inputs.** The actual BSP has no cube/plate puzzle: its later section is two portal gaps, so none was invented. Existing generic gameplay semantics suffice; the new opt-in input driver and regression establish continuous completion of this BSP, not whole-engine/game parity.
