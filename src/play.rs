@@ -472,7 +472,7 @@ impl World {
                 continue;
             }
             if index < self.model_brushes[0].len()
-                && self.aperture_except_cached(brush, start + center, end + center, extent, ignore, &mut exit_clearance)
+                && self.aperture_except_cached(brush, [start + center, end + center], extent, ignore, &mut exit_clearance)
             {
                 continue;
             }
@@ -587,12 +587,13 @@ impl World {
         extent: Vec3,
         ignore: Option<usize>,
     ) -> bool {
-        self.aperture_except_cached(brush, start, end, extent, ignore, &mut [None; 2])
+        self.aperture_except_cached(brush, [start, end], extent, ignore, &mut [None; 2])
     }
     fn aperture_except_cached(
-        &self, brush: &[Plane], start: Vec3, end: Vec3, extent: Vec3,
+        &self, brush: &[Plane], sweep: [Vec3; 2], extent: Vec3,
         ignore: Option<usize>, exit_clearance: &mut [Option<bool>; 2],
     ) -> bool {
+        let [start, end] = sweep;
         let [Some(a), Some(b)] = self.portals else {
             return false;
         };
