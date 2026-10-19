@@ -41,6 +41,39 @@ fn zstring(b: &[u8], p: &mut usize) -> Result<String, String> {
     Ok(s)
 }
 impl Assets {
+    /// Mount asynchronously prefetched browser assets; BSP pak entries override them.
+    pub fn from_memory(files: Vec<(String, Vec<u8>)>, bsp: Option<&[u8]>) -> Result<Self, String> {
+        let mut fs = Self { roots: vec![], entries: HashMap::new(), pak: HashMap::new() };
+        let mut total = 0usize;
+        for (name, bytes) in files {
+            let key = normalise(&name)?;
+            total = total.checked_add(bytes.len()).ok_or("asset pack size overflow")?;
+            if bytes.len() > LIMIT || total > 512 * 1024 * 1024 { return Err("oversized memory asset pack".into()); }
+            if fs.pak.insert(key, bytes).is_some() { return Err("duplicate memory asset".into()); }
+        }
+        fs.mount_bsp(bsp)?;
+        Ok(fs)
+    }
+    fn mount_bsp(&mut self, bsp: Option<&[u8]>) -> Result<(), String> {
+        if let Some(b) = bsp {
+            let pak = crate::lump(b, 40, 1)?;
+            if !pak.is_empty() {
+                let mut zip = zip::ZipArchive::new(std::io::Cursor::new(pak)).map_err(|e| e.to_string())?;
+                let mut total = 0u64;
+                for n in 0..zip.len() {
+                    let mut file = zip.by_index(n).map_err(|e| e.to_string())?;
+                    if file.is_dir() { continue; }
+                    let key = normalise(file.name())?;
+                    total += file.size();
+                    if file.size() > LIMIT as u64 || total > 256 * 1024 * 1024 { return Err("oversized map asset pack".into()); }
+                    let mut bytes = vec![];
+                    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+                    self.pak.insert(key, bytes);
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn from_game(game: impl AsRef<Path>, bsp: Option<&[u8]>) -> Result<Self, String> {
         let game = game.as_ref().canonicalize().map_err(|e| e.to_string())?;
         let base = game.parent().ok_or("game directory has no parent")?;
@@ -126,28 +159,7 @@ impl Assets {
         if fs.roots.is_empty() {
             return Err("no existing game search paths".into());
         }
-        if let Some(b) = bsp {
-            let pak = crate::lump(b, 40, 1)?;
-            if !pak.is_empty() {
-                let mut zip =
-                    zip::ZipArchive::new(std::io::Cursor::new(pak)).map_err(|e| e.to_string())?;
-                let mut total = 0u64;
-                for n in 0..zip.len() {
-                    let mut file = zip.by_index(n).map_err(|e| e.to_string())?;
-                    if file.is_dir() {
-                        continue;
-                    }
-                    let key = normalise(file.name())?;
-                    total += file.size();
-                    if file.size() > LIMIT as u64 || total > 256 * 1024 * 1024 {
-                        return Err("oversized map asset pack".into());
-                    }
-                    let mut bytes = vec![];
-                    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-                    fs.pak.insert(key, bytes);
-                }
-            }
-        }
+        fs.mount_bsp(bsp)?;
         Ok(fs)
     }
     /// BSP names visible through the same ordered search paths used by `read`.
@@ -176,6 +188,9 @@ impl Assets {
                     }
                 }
             }
+        }
+        for key in self.pak.keys().filter_map(|key| key.strip_prefix("maps/")) {
+            if let Some(name) = map_name(key) { names.insert(name.to_owned()); }
         }
         names.into_iter().collect()
     }
