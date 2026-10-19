@@ -335,6 +335,12 @@ impl GpuScene {
         self.draw_view(pass, 0);
     }
     pub fn draw_view<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, view: usize) {
+        crate::frame_profile::scene_view(
+            view,
+            self.count as u64,
+            self.translucent.len() as u64,
+            self.pellet_count.get() as u64,
+        );
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind[view], &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));

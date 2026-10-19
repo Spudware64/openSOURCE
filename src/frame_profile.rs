@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 const STAGES: usize = 13;
-const COUNTERS: usize = 7;
+const COUNTERS: usize = 14;
 const NAMES: [&str; STAGES] = [
     "simulation",
     "animate",
@@ -30,6 +30,13 @@ const COUNTS: [&str; COUNTERS] = [
     "vertex_writes",
     "world_updates",
     "collider_rebuilds",
+    "main_scene_views",
+    "remote_scene_views",
+    "main_scene_draws",
+    "remote_scene_draws",
+    "main_submitted_vertices",
+    "remote_submitted_vertices",
+    "translucent_triangle_draws",
 ];
 #[derive(Default)]
 struct Bucket {
@@ -158,6 +165,21 @@ pub fn count(index: usize, n: u64) {
         }
     });
 }
+/// Count API submissions, including zero-vertex pellet draws, not GPU execution.
+/// Called only after the shared portal visibility gate admits a remote pass.
+pub fn scene_view(view: usize, vertices: u64, translucent: u64, pellets: u64) {
+    PROFILE.with(|v| {
+        if let Some(p) = v.borrow_mut().as_mut() {
+            let remote = usize::from(view != 0);
+            p.counts[7 + remote] += 1;
+            p.counts[9 + remote] += 3 + translucent;
+            // The opaque pass currently submits the entire mesh (including
+            // blended geometry), followed by sorted translucent triangles.
+            p.counts[11 + remote] += vertices + translucent * 3 + pellets * 2;
+            p.counts[13] += translucent;
+        }
+    });
+}
 pub struct Scope {
     stage: usize,
     start: Option<Instant>,
@@ -259,6 +281,32 @@ mod tests {
         count(0, 1);
         drop(scope(10));
         finish();
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn render_workload_tracks_submitted_views_and_repeated_vertices() {
+        let path =
+            std::env::temp_dir().join(format!("source-workload-test-{}.csv", std::process::id()));
+        let now = Instant::now();
+        PROFILE.with(|v| {
+            *v.borrow_mut() = Some(Profile {
+                file: File::create(&path).unwrap(),
+                epoch: now,
+                mark: now,
+                stages: [0.; STAGES],
+                counts: [0; COUNTERS],
+                buckets: Default::default(),
+            })
+        });
+        begin();
+        scene_view(0, 300, 4, 6);
+        scene_view(2, 600, 8, 0);
+        PROFILE.with(|v| {
+            let p = v.borrow();
+            let counts = &p.as_ref().unwrap().counts;
+            assert_eq!(&counts[7..], &[1, 1, 7, 11, 324, 624, 12]);
+        });
+        PROFILE.with(|v| *v.borrow_mut() = None);
         std::fs::remove_file(path).unwrap();
     }
     #[test]
