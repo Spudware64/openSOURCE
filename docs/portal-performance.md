@@ -2,6 +2,13 @@
 
 ## Status
 
+The persistent acceptance case is **reopened**, not closed: sustained Windows
+Intel/Vulkan `escape_02` 8 FPS and intermittent chamber06 crossings are separate
+cases. The latest pass found and fixed two production CPU amplification paths
+(free-body scenery scans and repeated per-sweep exit clearance); see the final
+section for actual-asset measurements and the one-command Windows capture.
+Neither fix is yet verified against the user's Intel frame rate.
+
 Production now conservatively rejects static contiguous geometry chunks per view
 before submission (see implementation/results below). Earlier sections describe
 the diagnostic baseline, not the current submission path.
@@ -307,3 +314,155 @@ No PVS, portal-tight aperture frustum, occlusion-query system or dynamic-bound
 culling is claimed. Remaining practical work: replay the user's failing camera
 on Intel with these reduced submissions, inspect GPU timing/driver waits there,
 and only then choose the next evidence-backed bottleneck.
+
+## Reopened production investigation: CPU amplification and correlated spikes
+
+### New executable evidence, not another renderer smoke
+
+`examples/gameplay_cpu_profile.rs` loads both actual maps through
+`GameRoot::load_map`, binds original scene/colliders/animation, and runs the same
+120 Hz runtime → shot advance → portal synchronization → player controller
+sequence as native gameplay, plus scene and original viewmodel animation. Each
+sample has two fixed ticks; six phases have 240 samples each. It excludes GPU,
+upload, surface/presentation and audio; these timings are **not gameplay FPS**.
+The pair and approach poses are explicitly staged on actual legal wall surfaces,
+not a claim to replay the user's route or owned-channel puzzle. Chamber06's
+forward/jump inputs perform one real controller crossing; the probe fails if that
+crossing does not occur. `escape_02`'s approach remains blocked (zero crossings)
+and therefore does **not** validate escape traversal. The authored-spawn phase in
+chamber06 also falls below its initial elevator; it is not a playable route.
+
+### Fix 1: do not enumerate scenery for impossible free-body openings
+
+`RigidPhysics::step` previously scanned every brush for every free body, even
+with no linked pair or when that body could not fit/reach either aperture.
+On escape02 the isolated physics stage rose from 1.654 ms unlinked to 6.472 ms
+linked, per two fixed ticks; query-hull building was zero in those warm frames.
+A brush-independent **necessary** swept-plane/reach/fit condition now rejects
+impossible candidates once per body. Eligible bodies still run the original
+backing-brush and destination-clearance predicates; contacts, CCD policy and
+body transfer are unchanged. This is not disabling distant bodies or Rapier.
+
+The regression was observed red with 256 unnecessary brush tests, then green
+with zero; CCD remains enabled for the rejected body. A nearby valid opening
+still checks backing geometry and retains the existing portal CCD policy.
+
+M4/Metal host, same CPU content and staged pair, before → fix 1 medians:
+
+| Case (two fixed ticks) | Simulation ms | Physics subset ms |
+| --- | ---: | ---: |
+| escape02 unlinked | 2.053 → 0.551 | 1.654 → 0.121 |
+| escape02 linked, outside aperture fit | 7.841 → 1.521 | 6.472 → 0.124 |
+| escape02 linked, approach | 7.430 → 1.127 | 6.468 → 0.127 |
+| chamber06 linked, outside aperture fit | 1.188 → 0.646 | 0.610 → 0.066 |
+
+### Fix 2: reuse exit clearance within one controller sweep
+
+After fix 1, chamber06 still exhibited an actual intermittent controller spike:
+**8.689 ms** simulation at its crossing (8.586 ms controller), while physics was
+approximately 0.07 ms. Rim queries consumed only 0.359 ms and query-hull building
+was not the cause. Ordinary approach frames performed **1,046** destination
+clearance checks per two ticks; the crossing frame performed 512. Each clearance
+check enumerated world/rigid geometry. Multiple backing layers were asking the
+same destination question for the same sweep.
+
+`trace_hull` now memoizes each direction's clearance result in a two-entry local
+array. The world, endpoints, hull and ignored body cannot change during this
+query. The array is discarded when the sweep returns: moving obstacles, portal
+changes and held-body changes are observed by the next query. Each backing brush
+still has to match the original support predicate. Standalone aperture/contact
+queries keep independent results; this is not a persistent aperture-collider cache.
+
+The regression was red at 128 exit scans for 128 backing layers and green at one.
+It also inserts a new destination blocker between queries and requires the next
+sweep to stop, guarding against stale clearance. Actual sampled player positions,
+linkage and crossing counts are **identical across all 2,880 frames** before and
+after this second fix.
+
+| Case, after fix 1 → both fixes | Simulation p99 ms | Simulation max ms |
+| --- | ---: | ---: |
+| chamber06 real controller crossing phase | 7.208 → 1.728 | 8.689 → 2.204 |
+| escape02 blocked approach phase (not traversal) | 10.236 → 3.310 | 10.263 → 3.319 |
+
+The chamber06 crossing still occurs once. Approach clearance checks drop from
+1,046 to 14 per two ticks; crossing checks drop from 512 to 87 (other independent
+queries remain). These are local CPU results, not proof that the user's stalls
+or 8 FPS are fixed. No resolution, rendering quality or geometry change is made.
+
+### Native frame evidence and why averages were misleading
+
+`SOURCE_FRAME_DETAIL=1` alongside `SOURCE_FRAME_PROFILE=FILE.csv` now writes
+`FILE.csv.frames.csv`, buffered and flushed with the summaries. Each row retains
+same-frame timings/counters, elapsed time, begin-to-begin gap, pose, yaw/pitch,
+portal centers, linkage/crossings and framebuffer dimensions. The existing
+summary CSV remains available. `frame_work_ms` excludes event-loop idle;
+`begin_gap_ms` includes pacing/idle between begin calls. Extra scopes cover the
+controller, physics, held-object work, portal sync, viewmodel, query-hull building
+and portal rims. Counts include query cache misses/whole-cache clears and aperture
+exit checks. Nested timings overlap parent stages and **must not be added**.
+
+Before the CPU fixes, ordinary native stationary launches (no scripted smoke,
+no linked pair, forcibly terminated after 15 seconds) recorded 784 escape02 and
+845 chamber06 complete detailed rows. Escape02's median simulation was 5.759 ms,
+median acquire 9.491 ms; its 68.978 ms acquire spike did **not** coincide with
+simulation work. The reported ~2.9 collider rebuilds/frame was a cold-start
+averaging trap: exactly **4,042** escape02 hulls were built in frame zero and
+**zero** thereafter; chamber06 likewise built its 1,873 hulls only in frame zero.
+Neither run had a query-cache clear. This rules out sustained collider rebuilding
+in those stationary local cases, not during the user's moving/held-body route.
+Final native launches exercised the delivered row schema and production
+simulation/render/upload/acquire/submit/present path on both maps (509 and 576
+complete rows). They were also bounded stationary checks, not the missing Intel
+interaction reproduction. Acquire can include vsync or previous GPU backpressure;
+these CPU scopes do not report actual GPU execution time.
+
+### Minimal Windows capture, with executable provenance
+
+From PowerShell, after pulling these commits:
+
+```powershell
+Set-Location -LiteralPath 'C:\.dev\portal-rust'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\capture-portal-performance.ps1
+```
+
+Defaults are exactly repository `C:\.dev\portal-rust` and game
+`C:\.programs\Steam\steamapps\common\Portal\portal`. No path replacement or
+Python is needed. The script builds release, obtains the actual application path
+from Cargo's JSON artifact records (never a guessed executable name), records
+checkout/worktree, executable SHA-256 and adapter-driver information, then launches
+the existing inspected `--game ... --map ... --play` CLI for both maps. Startup
+logs carry the embedded build SHA and actual wgpu adapter/backend. Close the first
+game normally to move to chamber06, then close that normally. It produces one ZIP
+with logs, both detailed/summary CSVs and worst-frame extracts. Environment profile
+variables are restored afterward. A build failure does not launch an old binary.
+
+In each map: briefly idle without a linked pair; reproduce the slow view; look
+away/back; approach, cross, stop and return repeatedly. If safe, shrink the window
+and repeat the same slow view: recorded dimensions permit resolution-dependent
+GPU/driver load to be separated from controller/physics spikes. Avoid enabling
+controller trace at the same time: its extra diagnostic sweeps alter CPU work.
+
+The script passed the real PowerShell 7.6.7 parser on macOS, and its exact Cargo
+artifact-discovery/hash pipeline was executed against a real release build.
+The full Windows script, Windows PowerShell 5.1 and Intel/Vulkan execution remain
+**unverified**; do not describe the script's local parser check as Windows testing.
+
+### Verification and remaining acceptance
+
+- New frame-row regression was observed red then green; final library tests:
+  **25 passed**. Both CPU fixes have red/green work-count regressions.
+- Portal/rigid/cube/Rapier/chamber06 focused integration tests pass; the known
+  blocked-maker test was explicitly excluded from that focused run.
+- Full `cargo test --quiet --no-fail-fast` after the fixes still has exactly the
+  three AGENTS.md failures: `chamber00_exit`, `gun_pickup`, and `rigid`'s blocked
+  maker. The suite is **not green**; no new failing target is hidden.
+- Real-asset CPU probe completes with chamber06 crossing count 1; both final
+  native frame CSVs parse with consistent columns and contain the new scopes.
+- Raw uncommitted local evidence: `evidence/gameplay-cpu-{nested,fixed}*`,
+  `evidence/gameplay-{exit,exit-fixed}*`, `evidence/*-reopened*`,
+  `evidence/*-final.csv*`, and `evidence/performance-reopened-*-tests.log`.
+- **Sustained Intel escape02 8 FPS: unresolved remotely.** A measured CPU cause
+  is reduced; no Intel/GPU/presentation speedup is established.
+- **Intermittent chamber06 traversal: local controller amplification fixed** in
+  the staged actual-map crossing; the user's exact portal/held-object sequence
+  and full native crossing presentation still require the Windows capture.
