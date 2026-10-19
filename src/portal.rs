@@ -81,6 +81,7 @@ impl Game {
         runtime: &mut crate::entity::Runtime,
         world: &mut crate::play::World,
     ) {
+        let _profile = crate::frame_profile::scope(16);
         if !self.initial_authored_fitted {
             if let Some(surfaces) = &self.automatic_surfaces {
                 for portal in self.portals.iter_mut().flatten() {

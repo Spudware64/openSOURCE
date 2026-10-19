@@ -1,7 +1,7 @@
 //! Renderer-only diagnostic, not gameplay FPS. Original assets remain read-only.
 //! cargo run --release --example portal_render_profile -- GAME MAP [FRAMES]
 use glam::{Mat4, Vec3};
-pub use opensource::{entity, portal, scene};
+pub use opensource::{entity, play, portal, scene};
 #[allow(dead_code)]
 #[path = "../src/frame_profile.rs"]
 mod frame_profile;

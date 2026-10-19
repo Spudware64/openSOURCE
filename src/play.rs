@@ -746,6 +746,7 @@ impl Player {
         )
     }
     pub fn step(&mut self, w: &World, input: Vec3, jump: bool, dt: f32) {
+        let _profile = crate::frame_profile::scope(13);
         // Roll recovery is a local camera policy, not recovered Source tuning.
         let f = self.forward();
         let target = (Vec3::Z - f * f.z).normalize_or_zero();

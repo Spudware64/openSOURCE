@@ -988,6 +988,7 @@ pub(crate) async fn interactive_async(
                         weapon_owned=owned;
                         if std::env::var_os("SOURCE_WEAPON_DEMO").is_some() && frames==150 {weapon_sequence="fire1";weapon_started=Instant::now();}
                         if owned {
+                            let _profile = crate::frame_profile::scope(17);
                             if let (Some(s),Some(gpu))=(&mut weapon_scene,&weapon_gpu) {
                                 if let Err(e)=s.pose_weapon(weapon_sequence,weapon_started.elapsed().as_secs_f32()) {eprintln!("weapon animation: {e}");target.exit();return;}
                                 gpu.animation_vertices(&queue,s);
@@ -1229,6 +1230,7 @@ pub(crate) async fn interactive_async(
                                 }
                             }
                         crate::frame_profile::mark(9);
+                        crate::frame_profile::context(&player, &world, config.width, config.height);
                         crate::frame_profile::finish();
                         frames += 1;
                         if gui_smoke && frames == 120 { println!("egui overlay smoke rendered 120 frames"); target.exit(); }

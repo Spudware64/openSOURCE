@@ -18,6 +18,8 @@ pub fn queries() -> u64 {
     QUERIES.with(Cell::get)
 }
 fn build(planes: &[Plane], extent: Vec3) -> Option<(SharedShape, Vec3)> {
+    let _profile = crate::frame_profile::scope(18);
+    crate::frame_profile::count(14, 1);
     if let [p] = planes {
         return Some((
             SharedShape::halfspace(Vector::new(p.normal.x, p.normal.y, p.normal.z)),
@@ -86,6 +88,7 @@ pub fn cast(planes: &[Plane], start: Vec3, end: Vec3, extent: Vec3) -> (f32, Vec
     CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.len() > 16384 {
+            crate::frame_profile::count(15, 1);
             cache.clear();
         }
         let Some((shape, center)) = cache

@@ -2,11 +2,11 @@
 use std::{
     cell::RefCell,
     fs::File,
-    io::{self, Write},
+    io::{self, BufWriter, Write},
     time::Instant,
 };
-const STAGES: usize = 13;
-const COUNTERS: usize = 14;
+const STAGES: usize = 19;
+const COUNTERS: usize = 16;
 const NAMES: [&str; STAGES] = [
     "simulation",
     "animate",
@@ -21,6 +21,12 @@ const NAMES: [&str; STAGES] = [
     "runtime_tick_nested",
     "world_update_nested",
     "collider_rebuild_nested",
+    "controller_nested",
+    "physics_nested",
+    "held_nested",
+    "portal_sync_nested",
+    "viewmodel_nested",
+    "query_build_nested",
 ];
 const COUNTS: [&str; COUNTERS] = [
     "ticks",
@@ -37,6 +43,8 @@ const COUNTS: [&str; COUNTERS] = [
     "main_submitted_vertices",
     "remote_submitted_vertices",
     "translucent_triangle_draws",
+    "query_cache_misses",
+    "query_cache_clears",
 ];
 #[derive(Default)]
 struct Bucket {
@@ -103,6 +111,12 @@ impl Bucket {
 }
 struct Profile {
     file: File,
+    detail: Option<BufWriter<File>>,
+    frame: u64,
+    previous_begin: Instant,
+    started: Instant,
+    frame_gap: f64,
+    context: String,
     epoch: Instant,
     mark: Instant,
     stages: [f64; STAGES],
@@ -126,8 +140,24 @@ pub fn init() {
         }
         writeln!(file, ",le8,le16_7,le33_4,le50,le100,le250,le1000,gt1000")?;
         let now = Instant::now();
+        let detail = if std::env::var_os("SOURCE_FRAME_DETAIL").is_some() {
+            let mut path = std::env::var_os("SOURCE_FRAME_PROFILE").unwrap();
+            path.push(".frames.csv");
+            let mut out = BufWriter::new(File::create(path)?);
+            write!(out, "frame,elapsed_ms,begin_gap_ms,frame_work_ms")?;
+            for name in NAMES { write!(out, ",{name}_ms")?; }
+            for name in COUNTS { write!(out, ",{name}")?; }
+            writeln!(out, ",x,y,z,linked,crossings,yaw,pitch,width,height,portal0_x,portal0_y,portal0_z,portal1_x,portal1_y,portal1_z")?;
+            Some(out)
+        } else { None };
         Ok(Profile {
             file,
+            detail,
+            frame: 0,
+            previous_begin: now,
+            started: now,
+            frame_gap: 0.,
+            context: "0,0,0,0,0".into(),
             epoch: now,
             mark: now,
             stages: [0.; STAGES],
@@ -145,7 +175,10 @@ pub fn begin() {
         if let Some(p) = v.borrow_mut().as_mut() {
             p.stages.fill(0.);
             p.counts.fill(0);
-            p.mark = Instant::now();
+            let now = Instant::now();
+            p.frame_gap = (now - p.previous_begin).as_secs_f64() * 1000.;
+            p.previous_begin = now;
+            p.mark = now;
         }
     });
 }
@@ -207,12 +240,20 @@ pub fn finish() {
             return;
         };
         let frame_ms = p.stages[..10].iter().sum();
+        if let Some(out) = &mut p.detail {
+            if let Err(e) = write_detail(out, p.frame, p.started.elapsed().as_secs_f64() * 1000., p.frame_gap, &p.stages, &p.counts, &p.context) {
+                eprintln!("SOURCE_FRAME_DETAIL write failed: {e}");
+                p.detail = None;
+            }
+        }
+        p.frame += 1;
         p.buckets[usize::from(p.counts[1] > 0)].record(frame_ms, &p.stages, &p.counts);
         if p.epoch.elapsed().as_secs_f64() >= 1. {
             let result = p.buckets[0]
                 .write(&mut p.file, "static")
                 .and_then(|_| p.buckets[1].write(&mut p.file, "active"))
                 .and_then(|_| p.file.flush());
+            if let Some(out) = &mut p.detail { let _ = out.flush(); }
             if let Err(e) = result {
                 eprintln!("SOURCE_FRAME_PROFILE write failed: {e}");
                 *slot = None;
@@ -222,6 +263,25 @@ pub fn finish() {
             p.epoch = Instant::now();
         }
     });
+}
+
+pub fn context(player: &crate::play::Player, world: &crate::play::World, width: u32, height: u32) {
+    PROFILE.with(|v| {
+        if let Some(p) = v.borrow_mut().as_mut() {
+            if p.detail.is_some() {
+                let position = player.position;
+                let a = world.portals[0].map(|p| p.center).unwrap_or(glam::Vec3::NAN);
+                let b = world.portals[1].map(|p| p.center).unwrap_or(glam::Vec3::NAN);
+                p.context = format!("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", position.x, position.y, position.z, u8::from(world.portals.iter().all(Option::is_some)), player.portal_crossings, player.yaw, player.pitch, width, height, a.x, a.y, a.z, b.x, b.y, b.z);
+            }
+        }
+    });
+}
+fn write_detail(out: &mut impl Write, frame: u64, elapsed: f64, gap: f64, stages: &[f64; STAGES], counts: &[u64; COUNTERS], context: &str) -> io::Result<()> {
+    write!(out, "{frame},{elapsed:.3},{gap:.3},{:.3}", stages[..10].iter().sum::<f64>())?;
+    for value in stages { write!(out, ",{value:.3}")?; }
+    for value in counts { write!(out, ",{value}")?; }
+    writeln!(out, ",{context}")
 }
 
 #[cfg(test)]
@@ -235,6 +295,12 @@ mod tests {
         PROFILE.with(|v| {
             *v.borrow_mut() = Some(Profile {
                 file: File::create(&path).unwrap(),
+                detail: None,
+                frame: 0,
+                previous_begin: now,
+                started: now,
+                frame_gap: 0.,
+                context: String::new(),
                 epoch: now,
                 mark: now,
                 stages: [0.; STAGES],
@@ -290,6 +356,12 @@ mod tests {
         PROFILE.with(|v| {
             *v.borrow_mut() = Some(Profile {
                 file: File::create(&path).unwrap(),
+                detail: None,
+                frame: 0,
+                previous_begin: now,
+                started: now,
+                frame_gap: 0.,
+                context: String::new(),
                 epoch: now,
                 mark: now,
                 stages: [0.; STAGES],
@@ -303,10 +375,23 @@ mod tests {
         PROFILE.with(|v| {
             let p = v.borrow();
             let counts = &p.as_ref().unwrap().counts;
-            assert_eq!(&counts[7..], &[1, 1, 7, 11, 324, 624, 12]);
+            assert_eq!(&counts[7..14], &[1, 1, 7, 11, 324, 624, 12]);
         });
         PROFILE.with(|v| *v.borrow_mut() = None);
         std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn detailed_rows_preserve_correlated_spikes_and_context() {
+        let mut out = Vec::new();
+        let mut stages = [0.; STAGES];
+        stages[0] = 120.;
+        stages[4] = 2.;
+        let mut counts = [0; COUNTERS];
+        counts[6] = 3;
+        write_detail(&mut out, 7, 130., 125., &stages, &counts, "1,2,3,1,4").unwrap();
+        let row = String::from_utf8(out).unwrap();
+        assert!(row.starts_with("7,130.000,125.000,122.000,120.000,"), "{row}");
+        assert!(row.ends_with(",1,2,3,1,4\n"), "{row}");
     }
     #[test]
     fn summaries_separate_static_and_active_and_keep_worst_case() {

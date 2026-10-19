@@ -1295,6 +1295,7 @@ impl Runtime {
             (!s.killed && s.model.is_some() && s.velocity.is_some() && self.held != Some(id)).then_some(id)).collect();
         self.physics.retain(&ids);
         {
+            let _profile = crate::frame_profile::scope(14);
             self.physics.sync_world(&world.brushes);
             let (origins, rotations) = self.model_transforms();
             self.physics.sync_mesh_poses(&origins, &rotations, &self.visible);
@@ -1333,6 +1334,7 @@ impl Runtime {
                 let offset = (s.bounds.0 + s.bounds.1) * 0.5;
                 let extent = (s.bounds.1 - s.bounds.0) * 0.5;
                 if self.held == Some(id) {
+                    let _profile = crate::frame_profile::scope(15);
                     let eye = player.position + Vec3::Z * player.eye_height();
                     let mut target = eye + player.forward() * 64. + offset;
                     let mut position = self.origins[model] + offset;
