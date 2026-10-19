@@ -101,6 +101,9 @@ fn render_internal(
         portal_gpu.update(&queue, portals, eye, m);
         if let (Some(gpu), [Some(a), Some(b)]) = (&textured, portals) {
             for (index, (src, dst)) in [(a, b), (b, a)].into_iter().enumerate() {
+                if !portal_gpu.needs_remote(index) {
+                    continue;
+                }
                 let (e, f, u, clip) =
                     src.linked_view(dst, eye, (target - eye).normalize(), Vec3::Z);
                 let matrix = Mat4::perspective_rh(

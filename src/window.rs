@@ -860,6 +860,7 @@ fn interactive_impl(
                         if let (Some(portal_gpu),Some(gpu))=(&mut portal_gpu,&textured) {
                             portal_gpu.update(&queue,world.portals,eye,m);
                             if let [Some(a),Some(b)]=world.portals {for (index,(src,dst)) in [(a,b),(b,a)].into_iter().enumerate() {
+                                if !portal_gpu.needs_remote(index) {continue;}
                                 let (e,f,u,clip)=src.linked_view(dst,eye,player.forward(),player.view_up);
                                 let matrix=Mat4::perspective_rh(75f32.to_radians(),config.width as f32/config.height as f32,0.1,20000.)*Mat4::look_at_rh(e,e+f,u);
                                 gpu.update_view(&queue,index+1,matrix,clip);
