@@ -5,8 +5,8 @@ use std::{
     io::{self, BufWriter, Write},
     time::Instant,
 };
-const STAGES: usize = 19;
-const COUNTERS: usize = 16;
+const STAGES: usize = 20;
+const COUNTERS: usize = 17;
 const NAMES: [&str; STAGES] = [
     "simulation",
     "animate",
@@ -27,6 +27,7 @@ const NAMES: [&str; STAGES] = [
     "portal_sync_nested",
     "viewmodel_nested",
     "query_build_nested",
+    "portal_rim_nested",
 ];
 const COUNTS: [&str; COUNTERS] = [
     "ticks",
@@ -45,6 +46,7 @@ const COUNTS: [&str; COUNTERS] = [
     "translucent_triangle_draws",
     "query_cache_misses",
     "query_cache_clears",
+    "aperture_exit_checks",
 ];
 #[derive(Default)]
 struct Bucket {

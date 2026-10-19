@@ -1,4 +1,26 @@
 use glam::Vec3;
+#[cfg(test)]
+thread_local! { static APERTURE_EXIT_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+mod aperture_cache_tests {
+    use super::*;
+    #[test]
+    fn sweep_checks_each_destination_once_not_once_per_backing_layer() {
+        let brush = |center: Vec3| [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y, Vec3::Z, -Vec3::Z].into_iter().map(|normal| Plane { normal, distance: normal.dot(center) + 8. }).collect::<Vec<_>>();
+        let mut brushes = vec![brush(Vec3::ZERO); 128];
+        brushes.push(brush(Vec3::X * 200.));
+        let mut world = World::from_brushes(brushes);
+        world.portals = [Some(crate::portal::Portal { center: Vec3::X * 8., normal: Vec3::X, up: Vec3::Z }), Some(crate::portal::Portal { center: Vec3::X * 208., normal: Vec3::X, up: Vec3::Z })];
+        APERTURE_EXIT_CHECKS.with(|n| n.set(0));
+        let open = world.trace_cuboid(Vec3::X * 10., Vec3::ZERO, Vec3::ONE);
+        assert_eq!(open.0, 1.);
+        assert_eq!(APERTURE_EXIT_CHECKS.with(|n| n.get()), 1, "identical per-sweep exit clearance was recomputed for backing layers");
+        // A new query must see destination changes; this is not a persistent cache.
+        world.rigid.push(brush(Vec3::X * 208.));
+        let blocked = world.trace_cuboid(Vec3::X * 10., Vec3::ZERO, Vec3::ONE);
+        assert!(blocked.0 < 1.);
+    }
+}
 use winit::keyboard::KeyCode;
 // Source SDK public/bspflags.h. Portal shots deliberately pass through grates;
 // player hulls and solid objects do not. Keep contents until query selection.
@@ -443,12 +465,14 @@ impl World {
         let mut hit = if extent.length_squared() >= 1. {
             self.carry_portal_rim(start + center, end + center, extent)
         } else { (1., Vec3::ZERO) };
+        // Query-local only: start/end, hull, ignored body and world are fixed.
+        let mut exit_clearance = [None; 2];
         for (index, brush) in self.brushes.iter().enumerate() {
             if self.brush_contents.get(index).copied().unwrap_or(1) & mask == 0 {
                 continue;
             }
             if index < self.model_brushes[0].len()
-                && self.aperture_except(brush, start + center, end + center, extent, ignore)
+                && self.aperture_except_cached(brush, start + center, end + center, extent, ignore, &mut exit_clearance)
             {
                 continue;
             }
@@ -498,6 +522,7 @@ impl World {
     /// inside the backing brush: the uncut convex cast then has no entry face.
     /// Shared by the controller and Rapier-backed held-object sweeps.
     pub(crate) fn carry_portal_rim(&self, start: Vec3, end: Vec3, extent: Vec3) -> (f32, Vec3) {
+        let _profile = crate::frame_profile::scope(19);
         let mut hit = (1., Vec3::ZERO);
         let [Some(a), Some(b)] = self.portals else { return hit; };
         for brush in self.brushes.iter().take(self.model_brushes[0].len()) {
@@ -562,13 +587,19 @@ impl World {
         extent: Vec3,
         ignore: Option<usize>,
     ) -> bool {
+        self.aperture_except_cached(brush, start, end, extent, ignore, &mut [None; 2])
+    }
+    fn aperture_except_cached(
+        &self, brush: &[Plane], start: Vec3, end: Vec3, extent: Vec3,
+        ignore: Option<usize>, exit_clearance: &mut [Option<bool>; 2],
+    ) -> bool {
         let [Some(a), Some(b)] = self.portals else {
             return false;
         };
         if extent.length_squared() < 1. {
             return false;
         }
-        [(a, b), (b, a)].into_iter().any(|(p, dst)| {
+        [(a, b), (b, a)].into_iter().enumerate().any(|(portal_index, (p, dst))| {
             let a = p.normal.dot(start - p.center);
             let b = p.normal.dot(end - p.center);
             let reach = p.normal.abs().dot(extent) + 2.;
@@ -587,6 +618,9 @@ impl World {
             }
             let at = center - p.normal * p.normal.dot(center - p.center);
             let mapped = p.map_point(dst, at) + dst.normal * 0.05;
+            *exit_clearance[portal_index].get_or_insert_with(|| {
+            crate::frame_profile::count(16, 1);
+            #[cfg(test)] APERTURE_EXIT_CHECKS.with(|n| n.set(n.get() + 1));
             dst.fits(mapped, extent)
                 && !self
                     .brushes
@@ -608,6 +642,7 @@ impl World {
                                     < -0.001
                             })
                     })
+            })
         })
     }
     pub fn support_model(&self, position: Vec3, height: f32) -> Option<usize> {
