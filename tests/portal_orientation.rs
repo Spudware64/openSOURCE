@@ -23,6 +23,7 @@ fn placement_preserves_all_six_surface_normals_and_upright_frames() {
         let p = frame(normal);
         let surfaces = Surfaces {
             faces: vec![Surface {
+                model: 0,
                 points: [(-200., -200.), (200., -200.), (200., 200.), (-200., 200.)]
                     .map(|(x, y)| p.center + p.right() * x + p.up * y)
                     .to_vec(),
@@ -56,6 +57,7 @@ fn placement_fixture(normal: Vec3) -> Surfaces {
     let p = frame(normal);
     Surfaces {
         faces: vec![Surface {
+            model: 0,
             points: [(-500., -500.), (500., -500.), (500., 500.), (-500., 500.)]
                 .map(|(x, y)| p.center + p.right() * x + p.up * y)
                 .to_vec(),

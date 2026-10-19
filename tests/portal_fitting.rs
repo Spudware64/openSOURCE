@@ -3,6 +3,7 @@ use opensource::portal::{Portal, Surface, Surfaces, HALF_HEIGHT, HALF_WIDTH};
 
 fn panel(p: Portal, width: f32, height: f32) -> Surface {
     Surface {
+        model: 0,
         points: [
             (-width, -height),
             (width, -height),

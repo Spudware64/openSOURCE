@@ -23,6 +23,40 @@ fn step(r: &mut Runtime, w: &mut World, p: &mut Player, n: usize) {
     }
 }
 #[test]
+fn chamber06_blue_shot_hits_actual_parented_white_panel() {
+    use opensource::{
+        assets::Assets,
+        portal::{Game, Surfaces},
+    };
+    let b = std::fs::read("../portal-original/portal/maps/testchmb_a_06.bsp").unwrap();
+    let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
+    let (mut r, mut w, _) = setup();
+    r.direct_launch_loadout();
+    assert_eq!(r.portal_inventory, [true, false]);
+    let (origins, rotations) = r.model_transforms();
+    w.update_transforms(&origins, &r.visible, &rotations);
+    // Model28's concrete side is at local x160, y64..192, z-64..64.
+    let target = origins[28] + rotations[28] * Vec3::new(160., 128., 0.);
+    let eye = target + Vec3::X * 100.;
+    let (fraction, _) = w.trace_point(eye, target);
+    assert!(
+        fraction > 0.999,
+        "panel hit must agree with posed BSP collision: {fraction}"
+    );
+    let mut game = Game::load(&b).unwrap();
+    game.automatic_surfaces = Some(Surfaces::load(&b, &fs).unwrap());
+    let placed = game
+        .fire_player(0, eye, -Vec3::X, &r, &mut w)
+        .expect("authored white brush panel must accept blue portals");
+    assert!(
+        placed.center.distance(target) < 0.1,
+        "must hit panel, not world behind it: {:?} vs {target:?}",
+        placed.center
+    );
+    assert!(game.fire_player(1, eye, -Vec3::X, &r, &mut w).is_err());
+}
+
+#[test]
 fn chamber06_start_open_door_completion_drives_delayed_next_stage() {
     let (mut r, mut w, mut p) = setup();
     p.position = Vec3::new(-1800., 128., 48.);

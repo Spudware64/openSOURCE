@@ -10,6 +10,7 @@ fn setup() -> (Game, Runtime, World) {
     game.portals = [None; 2];
     game.automatic_surfaces = Some(Surfaces {
         faces: vec![Surface {
+            model: 0,
             points: vec![
                 Vec3::new(600., -500., -500.),
                 Vec3::new(600., 500., -500.),

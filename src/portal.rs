@@ -84,7 +84,7 @@ impl Game {
         if !self.initial_authored_fitted {
             if let Some(surfaces) = &self.automatic_surfaces {
                 for portal in self.portals.iter_mut().flatten() {
-                    if let Ok(fitted) = surfaces.fit_authored(*portal) {
+                    if let Ok(fitted) = surfaces.posed(runtime).fit_authored(*portal) {
                         *portal = fitted;
                     }
                 }
@@ -102,7 +102,7 @@ impl Game {
                 Some(eye),
             ));
             if let Some(surfaces) = &self.automatic_surfaces {
-                match surfaces.place(eye, direction) {
+                match surfaces.posed(runtime).place(eye, direction) {
                     Ok(portal) => {
                         let (fraction, _) = world.trace_point(eye, portal.center);
                         if fraction * eye.distance(portal.center) + 0.1
@@ -274,6 +274,7 @@ impl Game {
             .automatic_surfaces
             .as_ref()
             .ok_or("portal surfaces unavailable")?
+            .posed(runtime)
             .place_with_facing(eye, direction, facing)?;
         let (fraction, _) = world.trace_point(eye, portal.center);
         if fraction * eye.distance(portal.center) + 0.1 < eye.distance(portal.center) {
@@ -435,6 +436,8 @@ pub const HALF_WIDTH: f32 = 32.;
 pub const HALF_HEIGHT: f32 = 54.;
 #[derive(Clone)]
 pub struct Surface {
+    /// BSP submodel; points are model-local for nonzero models.
+    pub model: usize,
     pub points: Vec<Vec3>,
     pub normal: Vec3,
     pub allowed: bool,
@@ -463,6 +466,34 @@ impl Surface {
     }
 }
 impl Surfaces {
+    /// Query the same resolved parent hierarchy used by brush collision/rendering.
+    /// Local submodel faces must never participate at their unposed coordinates.
+    pub fn posed(&self, runtime: &crate::entity::Runtime) -> Self {
+        let (origins, rotations) = runtime.model_transforms();
+        Self {
+            faces: self
+                .faces
+                .iter()
+                .filter_map(|face| {
+                    let mut posed = face.clone();
+                    if face.model != 0 {
+                        if !runtime.visible.get(face.model).copied().unwrap_or(false) {
+                            return None;
+                        }
+                        let origin = *origins.get(face.model)?;
+                        let rotation = *rotations.get(face.model)?;
+                        posed
+                            .points
+                            .iter_mut()
+                            .for_each(|p| *p = rotation * *p + origin);
+                        posed.normal = rotation * posed.normal;
+                    }
+                    posed.model = 0;
+                    Some(posed)
+                })
+                .collect(),
+        }
+    }
     pub fn load(b: &[u8], fs: &Assets) -> Result<Self, String> {
         crate::load(b)?;
         let ii = |a: &[u8], o: usize| i32::from_le_bytes(a[o..o + 4].try_into().unwrap());
@@ -486,14 +517,49 @@ impl Surfaces {
         let names = crate::lump(b, 43, 1)?;
         let table = crate::lump(b, 44, 4)?;
         let model = crate::lump(b, 14, 48)?;
-        let first = ii(model, 40) as usize;
-        let count = ii(model, 44) as usize;
+        let mut owners = vec![None; crate::lump(b, 7, 56)?.len() / 56];
+        let entities = crate::entity::parse_entities(crate::lump(b, 0, 1)?)?;
+        for (id, m) in model.chunks_exact(48).enumerate() {
+            let solid = id == 0
+                || entities.iter().any(|e| {
+                    e.model().ok().flatten() == Some(id)
+                        && matches!(
+                            e.get("classname"),
+                            Some(
+                                "func_brush"
+                                    | "func_door"
+                                    | "func_door_rotating"
+                                    | "func_button"
+                                    | "func_movelinear"
+                                    | "func_tracktrain"
+                            )
+                        )
+                        && !(e.get("classname") == Some("func_brush")
+                            && e.get("Solidity") == Some("1"))
+                        && !(matches!(
+                            e.get("classname"),
+                            Some("func_door" | "func_door_rotating" | "func_tracktrain")
+                        ) && e
+                            .get("spawnflags")
+                            .and_then(|v| v.parse::<u32>().ok())
+                            .unwrap_or(0)
+                            & 8
+                            != 0)
+                });
+            if solid {
+                let first = ii(m, 40) as usize;
+                let count = ii(m, 44) as usize;
+                for owner in owners
+                    .get_mut(first..first + count)
+                    .ok_or("portal model face range")?
+                {
+                    *owner = Some(id);
+                }
+            }
+        }
         let mut faces = vec![];
-        for face in crate::lump(b, 7, 56)?
-            .chunks_exact(56)
-            .skip(first)
-            .take(count)
-        {
+        for (index, face) in crate::lump(b, 7, 56)?.chunks_exact(56).enumerate() {
+            let Some(model) = owners[index] else { continue };
             let ti = uu(face, 10);
             if ti == 65535 {
                 continue;
@@ -559,6 +625,7 @@ impl Surfaces {
                 return Err(format!("portal face plane/winding mismatch {material} plane {plane_normal:?} winding {normal:?} at {:?}",points[0]));
             }
             faces.push(Surface {
+                model,
                 points,
                 normal,
                 allowed,
@@ -580,7 +647,7 @@ impl Surfaces {
         let direction = direction.normalize_or_zero();
         let mut best = 8192.;
         let mut hit = None;
-        for face in &self.faces {
+        for face in self.faces.iter().filter(|face| face.model == 0) {
             let d = face.normal.dot(direction);
             if d >= -0.00001 {
                 continue;
@@ -681,7 +748,12 @@ impl Surfaces {
             s.normal.dot(portal.normal) > 0.9999
                 && s.normal.dot(portal.center - s.points[0]).abs() < 0.05
         };
-        let nearby: Vec<_> = self.faces.iter().filter(coplanar).collect();
+        let nearby: Vec<_> = self
+            .faces
+            .iter()
+            .filter(|s| s.model == 0)
+            .filter(coplanar)
+            .collect();
         // Only the connected eligible patch containing the actual impact may fit.
         let mut patch = vec![hit];
         loop {
