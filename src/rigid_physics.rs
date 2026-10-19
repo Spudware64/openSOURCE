@@ -69,6 +69,8 @@ pub(crate) struct RigidPhysics {
     meshes: Vec<(usize, ColliderHandle)>,
     #[cfg(test)]
     hull_builds: usize,
+    #[cfg(test)]
+    opening_brush_tests: usize,
     accumulator: f32,
 }
 impl RigidPhysics {
@@ -323,10 +325,13 @@ impl RigidPhysics {
                         .half_extents,
                 );
                 let end = start + source(body.linvel()) * parameters.dt;
-                let opening = world
+                let opening = world.portal_sweep_may_fit(start, end, extent) && world
                     .brushes
                     .iter()
-                    .any(|b| world.aperture_except(b, start, end, extent, Some(id)));
+                    .any(|b| {
+                        #[cfg(test)] { self.opening_brush_tests += 1; }
+                        world.aperture_except(b, start, end, extent, Some(id))
+                    });
                 body.enable_ccd(!opening);
                 previous.push((id, handle, start, extent));
             }
@@ -450,6 +455,28 @@ impl RigidPhysics {
 #[cfg(test)]
 mod carry_tests {
     use super::*;
+    #[test]
+    fn distant_linked_portals_do_not_scan_every_brush_for_each_free_body() {
+        let mut world = World::from_brushes((0..256).map(|i| box_brush(Vec3::new(i as f32 * 32., 100., 0.))).collect());
+        world.portals = [Some(crate::portal::Portal { center: Vec3::new(10000., 0., 0.), normal: Vec3::X, up: Vec3::Z }), Some(crate::portal::Portal { center: Vec3::new(12000., 0., 0.), normal: -Vec3::X, up: Vec3::Z })];
+        let mut physics = RigidPhysics::default();
+        physics.sync_world(&world.brushes);
+        physics.sync_body(1, Vec3::ZERO, Vec3::ONE, Vec3::X);
+        physics.step(1. / 120., &world);
+        assert_eq!(physics.opening_brush_tests, 0, "a geometrically impossible opening must not scan scenery");
+        assert!(physics.bodies[physics.handles[&1]].is_ccd_enabled());
+    }
+    #[test]
+    fn nearby_valid_opening_still_checks_brushes_and_preserves_portal_ccd_policy() {
+        let mut world = World::from_brushes(vec![box_brush(Vec3::ZERO), box_brush(Vec3::X * 200.)]);
+        world.portals = [Some(crate::portal::Portal { center: Vec3::X * 8., normal: Vec3::X, up: Vec3::Z }), Some(crate::portal::Portal { center: Vec3::X * 208., normal: Vec3::X, up: Vec3::Z })];
+        let mut physics = RigidPhysics::default();
+        physics.sync_world(&world.brushes);
+        physics.sync_body(1, Vec3::X * 10., Vec3::ONE, -Vec3::X);
+        physics.step(1. / 120., &world);
+        assert!(physics.opening_brush_tests > 0);
+        assert!(!physics.bodies[physics.handles[&1]].is_ccd_enabled());
+    }
     fn box_brush(center: Vec3) -> Vec<Plane> {
         [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y, Vec3::Z, -Vec3::Z]
             .into_iter()

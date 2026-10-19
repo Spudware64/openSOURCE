@@ -537,6 +537,20 @@ impl World {
             matches!((front,back),(Some(a),Some(b)) if a.distance+b.distance<=16.1)
         })
     }
+    /// Brush-independent necessary condition from `aperture_except`. Check it
+    /// once per free body, not once for every scenery brush. This is not an
+    /// opening decision: backing geometry and destination clearance still run.
+    pub(crate) fn portal_sweep_may_fit(&self, start: Vec3, end: Vec3, extent: Vec3) -> bool {
+        let [Some(a), Some(b)] = self.portals else { return false; };
+        if extent.length_squared() < 1. { return false; }
+        [a, b].into_iter().any(|p| {
+            let a = p.normal.dot(start - p.center);
+            let b = p.normal.dot(end - p.center);
+            let reach = p.normal.abs().dot(extent) + 2.;
+            let t = if (a - b).abs() > 0.0001 { (a / (a - b)).clamp(0., 1.) } else { 0. };
+            a.min(b) <= reach && a.max(b) >= -reach && p.fits(start.lerp(end, t), extent)
+        })
+    }
     fn aperture(&self, brush: &[Plane], start: Vec3, end: Vec3, extent: Vec3) -> bool {
         self.aperture_except(brush, start, end, extent, None)
     }
