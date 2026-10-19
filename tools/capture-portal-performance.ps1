@@ -30,8 +30,14 @@ try {
         Write-Host "`n${map}: stand still briefly without a linked pair, then repeat the reported slow interaction."
         Write-Host 'Look toward/away from the linked pair; approach, cross, stop, and cross back several times.'
         Write-Host 'If safe, repeat the same slow view after shrinking the window. Close the game normally to start the next map.'
-        & $exe --game $Game --map $map --play 2>&1 | Tee-Object -FilePath (Join-Path $out "$map.log")
-        if ($LASTEXITCODE -ne 0) { throw "Game exited with $LASTEXITCODE; partial capture retained in $out" }
+        # Windows PowerShell 5.1 turns redirected native stderr (including normal
+        # asset warnings) into error records. Do not abort on those; inspect exit.
+        try {
+            $ErrorActionPreference = 'Continue'
+            & $exe --game $Game --map $map --play 2>&1 | Tee-Object -FilePath (Join-Path $out "$map.log")
+            $gameExit = $LASTEXITCODE
+        } finally { $ErrorActionPreference = 'Stop' }
+        if ($gameExit -ne 0) { throw "Game exited with $gameExit; partial capture retained in $out" }
         $detail = "$env:SOURCE_FRAME_PROFILE.frames.csv"
         if (!(Test-Path -LiteralPath $detail)) { throw "No detailed capture: $detail" }
         Import-Csv -LiteralPath $detail | Sort-Object { [double]$_.frame_work_ms } -Descending | Select-Object -First 12 frame,begin_gap_ms,frame_work_ms,simulation_ms,controller_nested_ms,physics_nested_ms,query_build_nested_ms,acquire_ms,submit_ms,present_ms,linked,crossings,width,height | Format-Table -AutoSize | Out-String | Set-Content (Join-Path $out "$map-worst.txt")
