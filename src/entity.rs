@@ -25,6 +25,7 @@ struct State {
     touching: bool,
     activator: Option<usize>,
     next_trigger: f32,
+    look_since: Option<f32>,
     outputs: Vec<Output>,
     motion: Option<Motion>,
     train: Option<Train>,
@@ -420,6 +421,7 @@ impl Runtime {
                 touching: false,
                 activator: None,
                 next_trigger: 0.,
+                look_since: None,
                 outputs,
                 motion,
                 train: None,
@@ -1505,6 +1507,36 @@ impl Runtime {
                         .all()
                 {
                     self.request_changelevel(id);
+                }
+                continue;
+            }
+            if class == "trigger_look" {
+                // Source trigger_look tests continuous gaze while touching, not
+                // a generic touch/once event. Chamber06 uses these to stage pistons.
+                let s = &self.states[id];
+                let flags = s.entity.get("spawnflags").unwrap_or("0").parse::<u32>().unwrap_or(0);
+                let (lo, hi) = self.bounds(id);
+                let inside = !s.killed && s.enabled && flags & 1 != 0
+                    && (player.position - Vec3::new(16., 16., 0.)).cmplt(hi).all()
+                    && (player.position + Vec3::new(16., 16., player.height())).cmpgt(lo).all();
+                let eye = player.position + Vec3::Z * player.eye_height();
+                let direction = if flags & 256 != 0 { player.velocity.normalize_or_zero() } else { player.forward() };
+                let looking = inside && s.entity.get("target")
+                    .and_then(|name| self.names.get(name)).and_then(|ids| ids.first())
+                    .is_some_and(|&target| {
+                        direction.dot((self.transform(target).w_axis.truncate() - eye).normalize_or_zero())
+                            > s.entity.get("FieldOfView").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.9)
+                    });
+                let duration = s.entity.get("LookTime").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.);
+                if looking {
+                    let since = *self.states[id].look_since.get_or_insert(self.time);
+                    if self.time - since + 0.000001 >= duration {
+                        self.fire(id, "OnTrigger");
+                        self.states[id].look_since = None;
+                        if flags & 128 != 0 { self.states[id].enabled = false; }
+                    }
+                } else {
+                    self.states[id].look_since = None;
                 }
                 continue;
             }
