@@ -74,7 +74,8 @@ fn interactive_impl(
         runtime.bind_animations(scene);
         world.bind_scene(scene);
     }
-    world.update_models(&runtime.origins, &runtime.visible);
+    let (origins, rotations) = runtime.model_transforms();
+    world.update_transforms(&origins, &runtime.visible, &rotations);
     let cube_smoke = std::env::var_os("SOURCE_CUBE_SMOKE").is_some();
     let progression_smoke = std::env::var_os("SOURCE_PROGRESSION_SMOKE").is_some();
     let cleanser_smoke = std::env::var_os("SOURCE_CLEANSER_SMOKE").is_some();
@@ -854,8 +855,9 @@ fn interactive_impl(
                             crate::frame_profile::mark(2);
                         }
                         if let Some(gpu) = &textured {
-                            gpu.update(&queue, m, &runtime.origins);
-                            gpu.visibility(&queue, &runtime.origins, &runtime.visible);
+                            let origins = scene.as_ref().map(|s| s.origins.as_slice()).unwrap_or(&runtime.origins);
+                            gpu.update(&queue, m, origins);
+                            gpu.visibility(&queue, origins, &runtime.visible);
                         }
                         if let (Some(portal_gpu),Some(gpu))=(&mut portal_gpu,&textured) {
                             portal_gpu.update(&queue,world.portals,eye,m);

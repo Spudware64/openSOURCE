@@ -218,6 +218,7 @@ impl Scene {
     }
 
     pub fn animate(&mut self, runtime: &crate::entity::Runtime) -> Result<usize, String> {
+        self.origins = runtime.render_origins();
         let mut updated = 0;
         for instance in &mut self.animations {
             instance.updated = false;
@@ -237,7 +238,7 @@ impl Scene {
                 .map(glam::Mat3::from_mat4)
                 .unwrap_or(instance.rotation);
             let offset = transform
-                .map(|t| t.w_axis.truncate() - runtime.origins[model])
+                .map(|t| t.w_axis.truncate() - self.origins[model])
                 .unwrap_or(instance.offset);
             let spatial_changed = !rotation.abs_diff_eq(instance.rotation, 0.00001)
                 || !offset.abs_diff_eq(instance.offset, 0.0001);
@@ -958,7 +959,7 @@ impl Scene {
             filtered_faces: filtered,
             lightmapped_faces: lit,
             warnings,
-            origins,
+            origins: entity_runtime.render_origins(),
         })
     }
 }

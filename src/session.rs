@@ -73,7 +73,8 @@ impl GameRoot {
         let mut runtime = Runtime::new(&bytes)?;
         runtime.bind_animations(&scene);
         world.bind_scene(&scene);
-        world.update_models(&runtime.origins, &runtime.visible);
+        let (origins, rotations) = runtime.model_transforms();
+        world.update_transforms(&origins, &runtime.visible, &rotations);
         let mut player = Player::new(
             position,
             transition.map_or(world.yaw, |(_, previous)| previous.yaw),

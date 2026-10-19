@@ -567,6 +567,17 @@ impl Runtime {
             .and_then(|v| v.first())
             .and_then(|&id| self.states[id].model)
     }
+    /// MDL vertices already bake their resolved pose in Scene::animate. Brush
+    /// vertices do not: resolve their parent translation for the GPU model buffer.
+    pub fn render_origins(&self) -> Vec<Vec3> {
+        let mut origins = self.origins.clone();
+        for (id, state) in self.states.iter().enumerate() {
+            if let Some(model) = state.entity.model().ok().flatten() {
+                origins[model] = self.transform(id).w_axis.truncate();
+            }
+        }
+        origins
+    }
     pub fn model_transforms(&self) -> (Vec<Vec3>, Vec<Mat3>) {
         let mut origins = self.origins.clone();
         let mut rotations = vec![Mat3::IDENTITY; origins.len()];
