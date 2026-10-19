@@ -1,11 +1,22 @@
 use opensource::assets::Assets;
 
 #[test]
+fn texture_arrays_avoid_webgl_cube_heuristic() {
+    assert_eq!(opensource::scene::array_texture_layers(204), 205);
+    assert_eq!(opensource::scene::array_texture_layers(203), 203);
+}
+
+
+#[test]
 fn memory_assets_normalize_and_reject_traversal() {
     let fs = Assets::from_memory(vec![("Materials\\Test.VMT".into(), b"material".to_vec())], None).unwrap();
     assert_eq!(fs.read("materials/test.vmt").unwrap(), b"material");
     assert!(Assets::from_memory(vec![("../escape".into(), vec![])], None).is_err());
     assert!(fs.read("missing").is_err());
+    let mut fs = fs;
+    fs.record_reads();
+    fs.read("materials/test.vmt").unwrap();
+    assert_eq!(fs.recorded_files(), vec![("materials/test.vmt".into(), b"material".to_vec())]);
 }
 
 #[test]

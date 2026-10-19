@@ -5,9 +5,13 @@ use crate::{
     texture::{decode_vtf, Texture},
 };
 use glam::Vec3;
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 pub const LIGHT_SIZE: usize = 4096;
 pub const TILE: usize = 256;
+/// wgpu 0.19 GLES mistakes square arrays divisible by six for cube arrays.
+/// A spare, unsampled layer keeps original material indices and UVs unchanged.
+pub fn array_texture_layers(count: usize) -> usize { count + usize::from(count > 0 && count.is_multiple_of(6)) }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshVertex {
@@ -304,23 +308,22 @@ impl Scene {
         if materials.is_empty() || materials.len() > 1024 {
             return Err("material layer limit (1024)".into());
         }
+        let decode = |name: &String| {
+            if name.starts_with("tools/") {
+                Ok((vec![255; TILE * TILE * 4], false, false))
+            } else {
+                material(fs, name, 0).map(|m| (resample(&m), m.unlit, m.translucent))
+            }
+        };
+        #[cfg(not(target_arch = "wasm32"))]
         let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(workers)
-            .thread_name(|n| format!("source-assets-{n}"))
-            .build()
-            .map_err(|e| e.to_string())?;
-        let decoded = pool.install(|| {
-            materials
-                .par_iter()
-                .map(|name| {
-                    if name.starts_with("tools/") {
-                        Ok((vec![255; TILE * TILE * 4], false, false))
-                    } else {
-                        material(fs, name, 0).map(|m| (resample(&m), m.unlit, m.translucent))
-                    }
-                })
-                .collect::<Vec<_>>()
-        });
+                .num_threads(workers)
+                .thread_name(|n| format!("source-assets-{n}"))
+                .build().map_err(|e| e.to_string())?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let decoded = pool.install(|| materials.par_iter().map(decode).collect::<Vec<_>>());
+        #[cfg(target_arch = "wasm32")]
+        let decoded = materials.iter().map(decode).collect::<Vec<_>>();
         let mut textures = vec![];
         let mut unlit = vec![];
         let mut translucent = vec![];
@@ -644,20 +647,18 @@ impl Scene {
                 solid: 0,
             });
         }
-        let decoded = pool.install(|| {
-            props
-                .models
-                .par_iter()
-                .map(|path| {
+        let decode_model = |path: &String| {
                     let stem = path.trim_end_matches(".mdl");
                     crate::studio::decode(
                         &fs.read(path)?,
                         &fs.read(&format!("{stem}.vvd"))?,
                         &fs.read(&format!("{stem}.dx90.vtx"))?,
                     )
-                })
-                .collect::<Vec<_>>()
-        });
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let decoded = pool.install(|| props.models.par_iter().map(decode_model).collect::<Vec<_>>());
+        #[cfg(target_arch = "wasm32")]
+        let decoded = props.models.iter().map(decode_model).collect::<Vec<_>>();
         let mut prop_models = vec![];
         // Dynamic props start in their authored sequence, not the VVD bind pose.
         // Bind geometry can have a different basis even for a one-frame idle.

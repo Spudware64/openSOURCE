@@ -27,6 +27,7 @@ pub struct Assets {
     roots: Vec<PathBuf>,
     entries: HashMap<String, Entry>,
     pak: HashMap<String, Vec<u8>>,
+    recorded: Option<std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>>,
 }
 fn zstring(b: &[u8], p: &mut usize) -> Result<String, String> {
     let tail = b.get(*p..).ok_or("VPK tree bounds")?;
@@ -43,7 +44,7 @@ fn zstring(b: &[u8], p: &mut usize) -> Result<String, String> {
 impl Assets {
     /// Mount asynchronously prefetched browser assets; BSP pak entries override them.
     pub fn from_memory(files: Vec<(String, Vec<u8>)>, bsp: Option<&[u8]>) -> Result<Self, String> {
-        let mut fs = Self { roots: vec![], entries: HashMap::new(), pak: HashMap::new() };
+        let mut fs = Self { roots: vec![], entries: HashMap::new(), pak: HashMap::new(), recorded: None };
         let mut total = 0usize;
         for (name, bytes) in files {
             let key = normalise(&name)?;
@@ -88,6 +89,7 @@ impl Assets {
             roots: vec![],
             entries: HashMap::new(),
             pak: HashMap::new(),
+            recorded: None,
         };
         for (kind, value) in paths {
             if !kind
@@ -277,6 +279,20 @@ impl Assets {
         Ok(())
     }
     pub fn read(&self, key: &str) -> Result<Vec<u8>, String> {
+        let bytes = self.read_inner(key)?;
+        if let Some(recorded) = &self.recorded {
+            recorded.lock().map_err(|_| "asset recording lock poisoned")?.insert(normalise(key)?, bytes.clone());
+        }
+        Ok(bytes)
+    }
+    /// Opt-in dependency capture for private browser bundles; normal reads do not retain bytes.
+    pub fn record_reads(&mut self) {
+        self.recorded = Some(std::sync::Mutex::new(std::collections::BTreeMap::new()));
+    }
+    pub fn recorded_files(&self) -> Vec<(String, Vec<u8>)> {
+        self.recorded.as_ref().map(|r| r.lock().expect("asset recording lock poisoned").iter().map(|(k,v)| (k.clone(),v.clone())).collect()).unwrap_or_default()
+    }
+    fn read_inner(&self, key: &str) -> Result<Vec<u8>, String> {
         let key = normalise(key)?;
         if let Some(b) = self.pak.get(&key) {
             return Ok(b.clone());

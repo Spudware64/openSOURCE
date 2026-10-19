@@ -1,3 +1,5 @@
+#[cfg(target_arch = "wasm32")]
+pub mod browser;
 mod rigid_physics;
 mod player_query;
 pub mod animation;

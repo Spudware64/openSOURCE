@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 pub struct GameRoot {
     game: PathBuf,
     workers: usize,
+    memory: Option<Vec<(String, Vec<u8>)>>,
 }
 pub struct PreparedMap {
     pub scene: Scene,
@@ -19,6 +20,14 @@ pub struct PreparedMap {
     pub surfaces: Option<crate::portal::Surfaces>,
 }
 impl GameRoot {
+    pub fn from_memory(files: Vec<(String, Vec<u8>)>) -> Result<Self, String> {
+        Assets::from_memory(files.clone(), None)?;
+        Ok(Self { game: PathBuf::new(), workers: 1, memory: Some(files) })
+    }
+    pub fn assets(&self, bytes: Option<&[u8]>) -> Result<Assets, String> {
+        if let Some(files) = &self.memory { Assets::from_memory(files.clone(), bytes) }
+        else { Assets::from_game(&self.game, bytes) }
+    }
     pub fn audio(&self, bytes: &[u8]) -> Result<crate::audio::Audio, String> {
         Ok(crate::audio::Audio::start(Assets::from_game(
             &self.game,
@@ -26,7 +35,7 @@ impl GameRoot {
         )?))
     }
     pub fn weapon_viewmodel(&self) -> Result<Scene, String> {
-        Scene::weapon_viewmodel(&Assets::from_game(&self.game, None)?, "weapon_portalgun")
+        Scene::weapon_viewmodel(&self.assets(None)?, "weapon_portalgun")
     }
     pub fn new(game: impl AsRef<Path>, workers: usize) -> Result<Self, String> {
         if !(1..=16).contains(&workers) {
@@ -34,10 +43,10 @@ impl GameRoot {
         }
         let game = game.as_ref().canonicalize().map_err(|e| e.to_string())?;
         Assets::from_game(&game, None)?;
-        Ok(Self { game, workers })
+        Ok(Self { game, workers, memory: None })
     }
     pub fn maps(&self) -> Result<Vec<String>, String> {
-        Ok(Assets::from_game(&self.game, None)?.maps())
+        Ok(self.assets(None)?.maps())
     }
     pub fn load_map(&self, map: &str, portals: bool) -> Result<PreparedMap, String> {
         self.prepare_map(map, None, portals)
@@ -60,7 +69,7 @@ impl GameRoot {
             return Err("unsafe map name".into());
         }
         // Resolve the BSP without the old map's embedded pak, then mount only the new pak.
-        let bytes = Assets::from_game(&self.game, None)?.read(&format!("maps/{}.bsp", map))?;
+        let bytes = self.assets(None)?.read(&format!("maps/{}.bsp", map))?;
         let mut world = World::parse(&bytes)?;
         let position = if let Some((request, previous)) = transition {
             let entities = parse_entities(crate::lump(&bytes, 0, 1)?)?;
@@ -68,7 +77,7 @@ impl GameRoot {
         } else {
             world.spawn
         };
-        let fs = Assets::from_game(&self.game, Some(&bytes))?;
+        let fs = self.assets(Some(&bytes))?;
         let scene = Scene::load_with_workers(&bytes, &fs, self.workers)?;
         let mut runtime = Runtime::new(&bytes)?;
         runtime.bind_animations(&scene);

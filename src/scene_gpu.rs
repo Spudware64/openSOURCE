@@ -33,7 +33,7 @@ impl GpuScene {
     ) -> Result<Self, String> {
         let limits = device.limits();
         if scene.textures.is_empty()
-            || scene.textures.len() > limits.max_texture_array_layers as usize
+            || crate::scene::array_texture_layers(scene.textures.len()) > limits.max_texture_array_layers as usize
             || LIGHT_SIZE > limits.max_texture_dimension_2d as usize
             || scene.lightmap.len() != LIGHT_SIZE * LIGHT_SIZE * 4
             || scene.textures.iter().any(|t| t.len() != TILE * TILE * 4)
@@ -76,7 +76,7 @@ impl GpuScene {
         let base = texture(
             TILE as u32,
             TILE as u32,
-            scene.textures.len() as u32,
+            crate::scene::array_texture_layers(scene.textures.len()) as u32,
             wgpu::TextureFormat::Rgba8UnormSrgb,
             "VTF diffuse array",
         );

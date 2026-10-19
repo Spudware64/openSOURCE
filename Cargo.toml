@@ -5,6 +5,7 @@ edition = "2021"
 
 [lib]
 name = "opensource"
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 wgpu = "0.19"
@@ -19,7 +20,20 @@ rapier3d = "0.36.1"
 rodio = { version = "0.20.1", default-features = false, features = ["symphonia-wav", "symphonia-mp3"] }
 egui = "0.27"
 egui-wgpu = "0.27"
+egui-winit = { version = "0.27", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui-winit = "0.27"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "0.19", features = ["webgl"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+web-time = "1"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement", "HtmlCanvasElement", "Response", "console"] }
+rodio = { version = "0.20.1", default-features = false, features = ["wasm-bindgen"] }
 
 [profile.dev]
 # Keep real debug builds (symbols and assertions), but optimize simulation math.

@@ -1,6 +1,10 @@
 use crate::play::{Player, World};
 use glam::{Mat4, Vec3};
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 use wgpu::util::DeviceExt;
 use winit::{
     event::{DeviceEvent, ElementState, Event, MouseButton, WindowEvent},
@@ -31,11 +35,23 @@ pub fn interactive_game(
 }
 fn interactive_impl(
     bytes: &[u8],
+    scene: Option<crate::scene::Scene>,
+    surfaces: Option<crate::portal::Surfaces>,
+    root: Option<crate::session::GameRoot>,
+) -> Result<(), String> {
+    pollster::block_on(interactive_async(bytes, scene, surfaces, root))
+}
+pub(crate) async fn interactive_async(
+    bytes: &[u8],
     mut scene: Option<crate::scene::Scene>,
     mut surfaces: Option<crate::portal::Surfaces>,
     root: Option<crate::session::GameRoot>,
 ) -> Result<(), String> {
+    #[cfg(not(target_arch = "wasm32"))]
     let audio = root.as_ref().map(|r| r.audio(bytes)).transpose()?;
+    // Native rodio's worker uses OS threads. Browser audio is not yet ported.
+    #[cfg(target_arch = "wasm32")]
+    let audio: Option<crate::audio::Audio> = None;
     let mut controller_trace = crate::controller_trace::open()?;
     let trace_exe = if controller_trace.is_some() {
         std::env::current_exe()
@@ -168,11 +184,26 @@ fn interactive_impl(
     if surfaces.is_some() {
         window.set_title("Portal subset | click capture | LMB blue / RMB orange | WASD Space Ctrl E | Esc release R respawn N noclip");
     }
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::WindowExtWebSys;
+        let canvas = window.canvas().ok_or("no browser canvas")?;
+        canvas.set_width(1100);
+        canvas.set_height(800);
+        canvas.set_attribute("style", "width:1100px;height:800px").map_err(|e| format!("canvas size: {e:?}"))?;
+        let document = web_sys::window().ok_or("no browser window")?.document().ok_or("no document")?;
+        document.body().ok_or("no body")?.append_child(&canvas).map_err(|e| format!("append canvas: {e:?}"))?;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     let instance = wgpu::Instance::default();
+    // wgpu 0.19's WebGPU descriptor predates current Chrome limits. GLES also
+    // works on LAN HTTP without weakening browser secure-context policy.
+    #[cfg(target_arch = "wasm32")]
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::GL, ..Default::default() });
     let surface = instance
         .create_surface(window.clone())
         .map_err(|e| e.to_string())?;
-    let (device, queue, mut config) = pollster::block_on(async {
+    let (device, queue, mut config) = async {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
@@ -189,20 +220,30 @@ fn interactive_impl(
                     required_limits: wgpu::Limits {
                         max_texture_array_layers: 1024
                             .min(adapter.limits().max_texture_array_layers),
-                        ..wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits())
+                        ..{
+                            #[cfg(target_arch = "wasm32")]
+                            let limits = wgpu::Limits::downlevel_webgl2_defaults();
+                            #[cfg(not(target_arch = "wasm32"))]
+                            let limits = wgpu::Limits::downlevel_defaults();
+                            limits.using_resolution(adapter.limits())
+                        }
                     },
                 },
                 None,
             )
             .await
             .map_err(|e| e.to_string())?;
+        #[cfg(not(target_arch = "wasm32"))]
         let size = window.inner_size();
+        #[cfg(target_arch = "wasm32")]
+        let size = winit::dpi::PhysicalSize::new(1100, 800);
         let config = surface
             .get_default_config(&adapter, size.width, size.height)
             .ok_or("no surface config")?;
         Ok::<_, String>((device, queue, config))
-    })?;
-    config.usage |= wgpu::TextureUsages::COPY_SRC;
+    }.await?;
+    #[cfg(not(target_arch = "wasm32"))]
+    { config.usage |= wgpu::TextureUsages::COPY_SRC; }
     surface.configure(&device, &config);
     let mut textured = scene
         .as_ref()
@@ -402,8 +443,9 @@ fn interactive_impl(
             .as_ref()
             .map_or(vertices.len() / 3, |s| s.vertices.len() / 3)
     );
-    events
-        .run(move |event, target| {
+    run_event_loop(events, move |event, target| {
+            #[cfg(target_arch = "wasm32")]
+            { controls.captured = web_sys::window().is_some_and(|w| w.document().and_then(|d| d.pointer_lock_element()).is_some() || js_sys::Reflect::get(&w, &"opensourceBoundedMouse".into()).ok().and_then(|v| v.as_bool()).unwrap_or(false)); }
             target.set_control_flow(ControlFlow::Poll);
             match event {
                 Event::DeviceEvent {
@@ -449,10 +491,15 @@ fn interactive_impl(
                             if let Err(error)=portal_game.launch_player(channel,eye,forward,Vec3::new(player.yaw.cos(),player.yaw.sin(),0.),muzzle,&runtime,&world){println!("portal placement rejected: {error}");}
                             return;
                         }
-                        controls.captured = window
+                        #[cfg(not(target_arch = "wasm32"))]
+                        { controls.captured = window
                             .set_cursor_grab(CursorGrabMode::Locked)
                             .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined))
-                            .is_ok();
+                            .is_ok(); }
+                        // Browser pointer lock must be requested synchronously in the
+                        // DOM user gesture, not winit's deferred event dispatch.
+                        #[cfg(target_arch = "wasm32")]
+                        { controls.captured = web_sys::window().is_some_and(|w| w.document().and_then(|d| d.pointer_lock_element()).is_some() || js_sys::Reflect::get(&w, &"opensourceBoundedMouse".into()).ok().and_then(|v| v.as_bool()).unwrap_or(false)); }
                         window.set_cursor_visible(!controls.captured);
                         println!("cursor controls.captured: {}", controls.captured);
                     }
@@ -765,6 +812,8 @@ fn interactive_impl(
                             audio.listener(player.position+Vec3::Z*player.eye_height(),Vec3::new(player.yaw.sin(),-player.yaw.cos(),0.));
                             for event in runtime.sound_events.drain(..) {audio.play(event);}
                         }
+                        #[cfg(target_arch = "wasm32")]
+                        runtime.sound_events.clear();
                         if pellet_demo.is_none() { portal_game.sync_runtime(&mut runtime, &mut world); }
                         if let Some(request) = runtime.change_level.take() {
                             println!("ChangeLevel detected: {} landmark {} player {:?}",request.map,request.landmark,player.position);
@@ -1153,6 +1202,13 @@ fn interactive_impl(
                         }
                         crate::frame_profile::mark(8);
                         frame.present();
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let state = format!("{{\"frames\":{frames},\"position\":[{},{},{}],\"grounded\":{},\"yaw\":{},\"pitch\":{},\"captured\":{},\"noclip\":{},\"portal_count\":{},\"shots\":{}}}", player.position.x, player.position.y, player.position.z, player.grounded, player.yaw, player.pitch, controls.captured, player.noclip, world.portals.iter().flatten().count(), portal_game.shots.len());
+                            if let (Some(window), Ok(state)) = (web_sys::window(), js_sys::JSON::parse(&state)) {
+                                let _ = js_sys::Reflect::set(&window, &"opensourceState".into(), &state);
+                            }
+                        }
                             if let Some(map) = requested_map {
                                 match root.as_ref().unwrap().load_map(&map, surfaces.is_some()) {
                                     Ok(next) => match crate::scene_gpu::GpuScene::new(&device, &queue, &next.scene, config.format) {
@@ -1197,7 +1253,12 @@ fn interactive_impl(
                 _ => (),
             }
         })
-        .map_err(|e| e.to_string())
+}
+fn run_event_loop(events: EventLoop<()>, callback: impl FnMut(Event<()>, &winit::event_loop::EventLoopWindowTarget<()>) + 'static) -> Result<(), String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    { events.run(callback).map_err(|e| e.to_string()) }
+    #[cfg(target_arch = "wasm32")]
+    { use winit::platform::web::EventLoopExtWebSys; events.spawn(callback); Ok(()) }
 }
 fn capture_surface(
     device: &wgpu::Device,

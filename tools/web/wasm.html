@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>openSOURCE — Rust WASM</title><link rel="icon" href="data:,">
+<style>html,body{margin:0;background:#10151b;color:#dde5ed;font:14px system-ui}#status{padding:10px}canvas{display:block;max-width:100vw;max-height:90vh;outline:none}button,select{font:inherit;margin-right:12px}</style>
+<div id="status"><button id="start">Start Rust game</button><select id="map"><option>testchmb_a_00</option><option>testchmb_a_01</option><option>testchmb_a_02</option></select><span id="message">Actual shared Rust engine. WASD · mouse · Space · Ctrl · E · LMB/RMB · Esc. Browser audio unavailable.</span></div>
+<script type="module">
+import init, {start_game} from './opensource.js';
+const message=document.querySelector('#message');
+window.addEventListener('keydown',e=>{if(e.code==='Escape') window.opensourceBoundedMouse=false;});
+window.addEventListener('blur',()=>{window.opensourceBoundedMouse=false;});
+document.querySelector('#start').onclick=async()=>{
+ document.querySelector('#start').disabled=true;
+ try {
+  message.textContent='Loading WASM and private asset bundle…';
+  await init();
+  const response=await fetch('./game.zip');
+  if(!response.ok) throw Error(`Asset HTTP ${response.status}`);
+  const bytes=new Uint8Array(await response.arrayBuffer());
+  message.textContent='Preparing actual BSP, original materials and shared Rust runtime…';
+  await start_game(bytes, document.querySelector('#map').value);
+  message.textContent='Rust engine running — click canvas to capture mouse. Esc releases. Audio unavailable.';
+  const canvas=document.querySelector('canvas');
+  canvas.addEventListener('pointerdown',()=>{
+   if(document.pointerLockElement!==canvas) {
+    const pending=canvas.requestPointerLock();
+    pending?.catch(error=>{window.opensourceBoundedMouse=true;message.textContent=`Pointer lock unavailable (${error.name}); bounded mouse-look active over canvas. Esc releases. Audio unavailable.`;console.warn(error)});
+   }
+  });
+  window.opensourceStarted=true;
+ } catch(error) {window.opensourceError=String(error);message.textContent=String(error);console.error(error);}
+};
+</script>
