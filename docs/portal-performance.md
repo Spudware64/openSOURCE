@@ -247,3 +247,63 @@ Focused lib/profile/portal tests pass. Full `cargo test --quiet --no-fail-fast`
 reproduces exactly the three AGENTS.md baseline failing targets: chamber00_exit,
 gun_pickup and rigid; no other failing target. Local raw evidence (not assets or
 committed captures): `evidence/portal-chunks-{before,reference,verified,full-tests,focused}.log`.
+
+## Implemented reduction 2: reject invisible static translucent triangles
+
+The same conservative bounds classifier now caches one bound for each static
+translucent triangle. Per-view selection happens before the existing stable
+back-to-front sort. Remaining triangles keep the same relative ordering and
+original shared-buffer indices. Model/animation triangles always survive CPU
+selection, exactly as for chunks. The full-reference diagnostic bypasses both
+optimisations. No alpha/blend shader or depth state was changed.
+
+Actual staged `escape_02` visible-pair workload, at both target sizes:
+
+| Main + one remote view | Original full rendering | Both reductions |
+| --- | ---: | ---: |
+| Translucent draws (main / remote) | 310 / 310 | 4 / 6 |
+| Total scene draws (including empty pellets) | 626 | 73 |
+| Total submitted scene vertices | 8,462,616 | 5,861,874 |
+
+That is **88.34% fewer draw submissions** and approximately **31% fewer opaque
+vertices per view**, not a GPU-timing speedup claim. Main alone is 36 scene draws;
+remote is 37, versus 313 each originally. Opaque chunks still contain blended
+vertices rejected by the fragment shader; splitting that buffer is not included.
+
+Again all seven real-asset GPU differential cases are byte-identical (zero
+changed pixels), including translated model origins and changed animation
+uploads. The new static-triangle classifier test was observed failing before
+implementation, then passing. Native release surface-event-loop portal smoke on
+`testchmb_a_00` exits successfully after 180 scripted frames: portal crossing
+count 1, grounded at finish. Inspected actual surface capture
+`artifacts/portals/portal-0060.png`: linked tiled room and props are visible inside
+the blue aperture, surrounding walls/floor remain intact. This is a scripted
+native check, not physical keyboard/mouse verification or an Intel check.
+
+Latest 80-sample M4/Metal visible-pair results, original full-reference → both
+reductions, with the same cameras/resolutions:
+
+| Target | Encode median | Completed-wall median |
+| --- | --- | --- |
+| 640x360 | 0.320 → 0.150 ms | 9.448 → 9.215 ms |
+| 1280x720 | 0.296 → 0.131 ms | 9.372 → 9.203 ms |
+
+CPU selection is now separately measured: 200 iterations of main plus **two**
+remote view updates (including uniform writes and model-origin copy) have
+medians 0.168 / 0.163 ms at the two target sizes. These updates are still outside
+the encode/completed-wall tables. The full-reference switch only bypasses
+submission rejection; it still computes selection, so its update measurement is
+not an old-renderer CPU baseline. Small completed-wall differences and unmeasured
+present/driver work prevent claiming a gameplay frame-time improvement.
+
+Focused tests: lib 21, profile example 10, portals 15; animation, dynamic,
+parented_support, chamber06_render and viewmodel pass. Full no-fail-fast suite
+again has only the three documented failing targets (chamber00_exit, gun_pickup,
+rigid). Clippy remains baseline-warning-blocked; no new production lint warning.
+Local logs: `evidence/portal-translucent-{verified,reference,focused,full-tests,clippy,native}.log`.
+
+The severe visible-portal Windows Intel/Vulkan stall remains **unverified**.
+No PVS, portal-tight aperture frustum, occlusion-query system or dynamic-bound
+culling is claimed. Remaining practical work: replay the user's failing camera
+on Intel with these reduced submissions, inspect GPU timing/driver waits there,
+and only then choose the next evidence-backed bottleneck.

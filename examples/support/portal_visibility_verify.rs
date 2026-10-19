@@ -7,9 +7,9 @@ pub(super) fn verify_visibility(
     scene: &mut scene::Scene,
     eye: Vec3,
     forward: Vec3,
-    a: portal::Portal,
-    b: portal::Portal,
+    pair: [portal::Portal; 2],
 ) -> Result<(), String> {
+    let [a, b] = pair;
     let (width, height) = (640, 360);
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
     let color = device.create_texture(&wgpu::TextureDescriptor {
@@ -164,6 +164,38 @@ pub(super) fn verify_visibility(
                 .map_err(|e| e.to_string())?;
             images.push(read.slice(..).get_mapped_range().to_vec());
             read.unmap();
+        }
+        let colors = images[0]
+            .chunks_exact(4)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        if colors < 20 {
+            return Err(format!(
+                "vacuous differential image in {case}: {colors} colors"
+            ));
+        }
+        if case == "center" {
+            assert!(
+                portals.needs_remote(0),
+                "center comparison must include a remote pass"
+            );
+            if let Some(dir) = std::env::var_os("SOURCE_VERIFY_CAPTURE") {
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                for (name, bytes) in ["reference", "optimized"].into_iter().zip(&images) {
+                    let file = std::fs::File::create(
+                        std::path::Path::new(&dir).join(format!("escape02-{name}.png")),
+                    )
+                    .map_err(|e| e.to_string())?;
+                    let mut encoder = png::Encoder::new(file, width, height);
+                    encoder.set_color(png::ColorType::Rgba);
+                    encoder.set_depth(png::BitDepth::Eight);
+                    encoder
+                        .write_header()
+                        .map_err(|e| e.to_string())?
+                        .write_image_data(bytes)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
         }
         let changed = images[0]
             .chunks_exact(4)

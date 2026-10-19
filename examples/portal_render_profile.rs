@@ -108,7 +108,7 @@ fn main() -> Result<(), String> {
         .chunks_exact(3)
         .filter(|t| t[0].unlit < 0.)
         .count();
-    println!("map={map} vertices={} triangles={} translucent_triangles={} scene_draws_per_view={} eye={eye:?} forward={forward:?}", scene.vertices.len(), scene.vertices.len()/3, translucent, 3+translucent);
+    println!("map={map} vertices={} triangles={} translucent_triangles={} reference_scene_draws_per_view={} eye={eye:?} forward={forward:?}", scene.vertices.len(), scene.vertices.len()/3, translucent, 3+translucent);
     frame_profile::init();
     pollster::block_on(async {
         let instance = wgpu::Instance::default();
@@ -135,7 +135,7 @@ fn main() -> Result<(), String> {
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let gpu = scene_gpu::GpuScene::new(&device, &queue, &scene, format)?;
         if std::env::var_os("SOURCE_VERIFY_VISIBILITY").is_some() {
-            verify_visibility(&device, &queue, &gpu, &mut scene, eye, forward, a, b)?;
+            verify_visibility(&device, &queue, &gpu, &mut scene, eye, forward, [a, b])?;
         }
         gpu.set_reference(std::env::var_os("SOURCE_REFERENCE_RENDER").is_some());
         for (width, height) in [(640, 360), (1280, 720)] {
@@ -203,7 +203,21 @@ fn main() -> Result<(), String> {
                         );
                     }
                 }
-                println!("work {width}x{height} phase={phase} main={:?} remote={:?} (opaque vertices, draws)", gpu.submitted_work(0), gpu.submitted_work(1));
+                println!("work {width}x{height} phase={phase} main={:?} remote={:?} (opaque vertices, draws) translucent_main={} translucent_remote={}", gpu.submitted_work(0), gpu.submitted_work(1), gpu.translucent_work(0), gpu.translucent_work(1));
+                if phase == "visible" {
+                    let mut updates = Vec::new();
+                    for _ in 0..200 {
+                        let start = std::time::Instant::now();
+                        gpu.update(&queue, matrix, &scene.origins);
+                        for (i, (src, dst)) in [(a,b), (b,a)].into_iter().enumerate() {
+                            let (e,f,u,clip) = src.linked_view(dst, eye, forward, Vec3::Z);
+                            gpu.update_view(&queue, i+1, projection*Mat4::look_at_rh(e,e+f,u), clip);
+                        }
+                        updates.push(start.elapsed().as_secs_f64()*1000.);
+                    }
+                    updates.sort_by(f64::total_cmp);
+                    println!("selection {width}x{height} main_plus_two_remote_update_median_ms={:.3}", updates[updates.len()/2]);
+                }
                 device.poll(wgpu::Maintain::Wait);
                 let mut encode = Vec::new();
                 let mut complete = Vec::new();

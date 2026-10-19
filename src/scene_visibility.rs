@@ -9,7 +9,7 @@ pub(super) struct Bounds {
     max: Vec3,
 }
 impl Bounds {
-    fn visible(self, matrix: Mat4, plane: Vec4) -> bool {
+    pub(super) fn visible(self, matrix: Mat4, plane: Vec4) -> bool {
         let corners: [Vec4; 8] = std::array::from_fn(|i| {
             Vec3::new(
                 if i & 1 == 0 { self.min.x } else { self.max.x },
@@ -43,6 +43,31 @@ pub(super) struct Chunk {
     range: Range<u32>,
     bounds: Option<Bounds>,
 }
+pub(super) fn static_bounds(
+    vertices: &[MeshVertex],
+    range: Range<usize>,
+    animated: &[Range<usize>],
+) -> Option<Bounds> {
+    let vs = &vertices[range.clone()];
+    if vs.iter().any(|v| v.model != 0)
+        || animated
+            .iter()
+            .any(|r| r.start < range.end && r.end > range.start)
+    {
+        return None;
+    }
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for v in vs {
+        let p = Vec3::from(v.position);
+        if !p.is_finite() {
+            return None;
+        }
+        min = min.min(p);
+        max = max.max(p);
+    }
+    Some(Bounds { min, max })
+}
 pub(super) fn build(vertices: &[MeshVertex], animated: &[Range<usize>], size: usize) -> Vec<Chunk> {
     assert!(size > 0 && size.is_multiple_of(3));
     vertices
@@ -51,24 +76,9 @@ pub(super) fn build(vertices: &[MeshVertex], animated: &[Range<usize>], size: us
         .map(|(i, vs)| {
             let start = i * size;
             let end = start + vs.len();
-            let moving = vs.iter().any(|v| v.model != 0)
-                || animated.iter().any(|r| r.start < end && r.end > start);
-            let mut min = Vec3::splat(f32::INFINITY);
-            let mut max = Vec3::splat(f32::NEG_INFINITY);
-            let mut finite = true;
-            for v in vs {
-                let p = Vec3::from(v.position);
-                finite &= p.is_finite();
-                min = min.min(p);
-                max = max.max(p);
-            }
             Chunk {
                 range: start as u32..end as u32,
-                bounds: if moving || !finite {
-                    None
-                } else {
-                    Some(Bounds { min, max })
-                },
+                bounds: static_bounds(vertices, start..end, animated),
             }
         })
         .collect()
@@ -112,6 +122,20 @@ mod tests {
             ranges(&chunks, Mat4::from_scale(Vec3::splat(0.1)), Vec4::ZERO),
             vec![0..18]
         );
+    }
+    #[test]
+    fn static_triangle_bounds_keep_model_and_animation_ranges_live() {
+        use bytemuck::Zeroable;
+        let mut vertices = vec![MeshVertex::zeroed(); 9];
+        for v in &mut vertices {
+            v.position = [4., 0., 0.5];
+        }
+        vertices[3].model = 7;
+        assert!(!static_bounds(&vertices, 0..3, &[6..9])
+            .unwrap()
+            .visible(Mat4::IDENTITY, Vec4::ZERO));
+        assert!(static_bounds(&vertices, 3..6, &[6..9]).is_none());
+        assert!(static_bounds(&vertices, 6..9, &[6..9]).is_none());
     }
     #[test]
     fn rejects_only_wholly_outside_bounds() {

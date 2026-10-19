@@ -11,7 +11,8 @@ pub(crate) struct GpuScene {
     modulate_pipeline: wgpu::RenderPipeline,
     pipeline: wgpu::RenderPipeline,
     translucent_pipeline: wgpu::RenderPipeline,
-    translucent: Vec<(u32, Vec3, usize)>,
+    translucent: Vec<(u32, Vec3, usize, Option<visibility::Bounds>)>,
+    translucent_visible: [std::cell::RefCell<Vec<bool>>; 3],
     matrices: [std::cell::Cell<Mat4>; 3],
     origins: std::cell::RefCell<Vec<Vec3>>,
     bind: [wgpu::BindGroup; 3],
@@ -236,6 +237,7 @@ impl GpuScene {
             contents: bytemuck::cast_slice(&scene.vertices),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+        let animated: Vec<_> = scene.animations.iter().map(|a| a.range.clone()).collect();
         let result = Self {
             pellets: device.create_buffer(&wgpu::BufferDescriptor{label:Some("bounded energy pellet meshes"),size:(64*scene.pellet_template.len().max(1)*std::mem::size_of::<MeshVertex>()) as u64,usage:wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false}),
             pellet_count:std::cell::Cell::new(0),
@@ -257,9 +259,11 @@ impl GpuScene {
                             + Vec3::from(tri[2].position))
                             / 3.,
                         tri[0].model as usize,
+                        visibility::static_bounds(&scene.vertices, i*3..i*3+3, &animated),
                     )
                 })
                 .collect(),
+            translucent_visible: std::array::from_fn(|_| std::cell::RefCell::new(Vec::new())),
             matrices: std::array::from_fn(|_| std::cell::Cell::new(Mat4::IDENTITY)),
             origins: std::cell::RefCell::new(scene.origins.clone()),
             bind,
@@ -267,7 +271,7 @@ impl GpuScene {
             camera,
             models,
             count: scene.vertices.len() as u32,
-            chunks: visibility::build(&scene.vertices, &scene.animations.iter().map(|a| a.range.clone()).collect::<Vec<_>>(), 3072),
+            chunks: visibility::build(&scene.vertices, &animated, 3072),
             ranges: std::array::from_fn(|_| std::cell::RefCell::new(Vec::new())),
             reference: std::cell::Cell::new(false),
         };
@@ -339,6 +343,9 @@ impl GpuScene {
         let origin = self.origins.borrow().first().copied().unwrap_or(Vec3::ZERO);
         let local_clip = glam::Vec4::new(clip.x, clip.y, clip.z, clip.w + clip.truncate().dot(origin));
         *self.ranges[index].borrow_mut() = visibility::ranges(&self.chunks, matrix * Mat4::from_translation(origin), local_clip);
+        *self.translucent_visible[index].borrow_mut() = self.translucent.iter().map(|t|
+            t.3.is_none_or(|b| b.visible(matrix * Mat4::from_translation(origin), local_clip))
+        ).collect();
         let mut data = [0f32; 20];
         data[..16].copy_from_slice(&matrix.to_cols_array());
         data[16..].copy_from_slice(&clip.to_array());
@@ -355,12 +362,16 @@ impl GpuScene {
         let ranges = self.ranges[view].borrow();
         (ranges.iter().map(|r| (r.end-r.start) as u64).sum(), ranges.len() as u64)
     }
+    pub fn translucent_work(&self, view: usize) -> usize {
+        if self.reference.get() { self.translucent.len() }
+        else { self.translucent_visible[view].borrow().iter().filter(|&&v| v).count() }
+    }
     pub fn draw_view<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, view: usize) {
         let (vertices, draws) = self.submitted_work(view);
         crate::frame_profile::scene_view(
             view,
             vertices,
-            self.translucent.len() as u64,
+            self.translucent_work(view) as u64,
             self.pellet_count.get() as u64,
             draws,
         );
@@ -379,10 +390,13 @@ impl GpuScene {
         pass.set_pipeline(&self.translucent_pipeline);
         let matrix = self.matrices[view].get();
         let origins = self.origins.borrow();
+        let visible = self.translucent_visible[view].borrow();
         let mut triangles: Vec<_> = self
             .translucent
             .iter()
-            .map(|&(first, center, model)| {
+            .enumerate()
+            .filter(|(n, _)| self.reference.get() || visible[*n])
+            .map(|(_, &(first, center, model, _))| {
                 let clip = matrix
                     * (center + origins.get(model).copied().unwrap_or(Vec3::ZERO)).extend(1.);
                 (first, clip.z / clip.w)
