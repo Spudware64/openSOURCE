@@ -20,7 +20,28 @@ pub fn rules_enabled(bytes: &[u8], override_value: Option<&str>) -> Result<bool,
         }))
 }
 
+/// Procedural approximation of Portal's energy projectile, in Source units.
+#[derive(Clone, Debug)]
+pub struct Shot {
+    pub channel: usize,
+    pub muzzle: Vec3,
+    pub target: Vec3,
+    pub age: f32,
+    pub duration: f32,
+    rejection: Option<String>,
+    eye: Vec3,
+    direction: Vec3,
+    facing: Vec3,
+}
+impl Shot {
+    pub fn position(&self) -> Vec3 {
+        self.muzzle
+            .lerp(self.target, (self.age / self.duration).clamp(0., 1.))
+    }
+}
 pub struct Game {
+    pub shots: Vec<Shot>,
+    impacts: Vec<(usize, Vec3, f32)>,
     pub automatic_surfaces: Option<Surfaces>,
     pub portals: [Option<Portal>; 2],
     names: [Option<String>; 2],
@@ -30,6 +51,8 @@ pub struct Game {
 impl Game {
     pub fn load(bytes: &[u8]) -> Result<Self, String> {
         let mut game = Self {
+            shots: Vec::new(),
+            impacts: Vec::new(),
             automatic_surfaces: None,
             portals: [None; 2],
             names: [None, None],
@@ -130,6 +153,115 @@ impl Game {
         runtime: &crate::entity::Runtime,
         world: &mut crate::play::World,
     ) -> Result<Portal, String> {
+        let portal = self.player_target(index, eye, direction, facing, runtime, world)?;
+        self.place(index, portal);
+        world.portals = self.portals;
+        println!("player portal {index}: {portal:?}");
+        Ok(portal)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_player(
+        &mut self,
+        index: usize,
+        eye: Vec3,
+        direction: Vec3,
+        facing: Vec3,
+        muzzle: Vec3,
+        runtime: &crate::entity::Runtime,
+        world: &crate::play::World,
+    ) -> Result<(), String> {
+        if !runtime
+            .portal_inventory
+            .get(index)
+            .copied()
+            .unwrap_or(false)
+        {
+            return Err("portal channel not acquired".into());
+        }
+        if self.shots.len() >= 64 {
+            return Err("too many portal shots in flight".into());
+        }
+        let end = eye + direction.normalize_or_zero() * 8192.;
+        let (fraction, _) = world.trace_point(eye, end);
+        let direction = direction.normalize_or_zero();
+        let surface_distance = self
+            .automatic_surfaces
+            .as_ref()
+            .into_iter()
+            .flat_map(|s| &s.faces)
+            .filter_map(|face| {
+                let denominator = face.normal.dot(direction);
+                if denominator >= -0.0001 {
+                    return None;
+                }
+                let distance = face.normal.dot(*face.points.first()? - eye) / denominator;
+                (distance > 0. && face.contains(eye + direction * distance)).then_some(distance)
+            })
+            .fold(8192. * fraction, f32::min);
+        let placement = self.player_target(index, eye, direction, facing, runtime, world);
+        let target = placement
+            .as_ref()
+            .map(|p| p.center)
+            .unwrap_or(eye + direction * surface_distance);
+        self.shots.push(Shot {
+            channel: index,
+            muzzle,
+            target,
+            age: 0.,
+            duration: (muzzle.distance(target) / 3000.).max(0.06),
+            rejection: placement.err(),
+            eye,
+            direction,
+            facing,
+        });
+        Ok(())
+    }
+    pub fn advance_shots(
+        &mut self,
+        dt: f32,
+        runtime: &crate::entity::Runtime,
+        world: &mut crate::play::World,
+    ) {
+        self.impacts
+            .iter_mut()
+            .for_each(|impact| impact.2 += dt.max(0.));
+        self.impacts.retain(|impact| impact.2 < 0.3);
+        let mut shots = std::mem::take(&mut self.shots);
+        shots.sort_by(|a, b| (a.duration - a.age).total_cmp(&(b.duration - b.age)));
+        for mut shot in shots {
+            shot.age += dt.max(0.);
+            if shot.age >= shot.duration {
+                if shot.age - shot.duration < 0.3 {
+                    self.impacts
+                        .push((shot.channel, shot.target, shot.age - shot.duration));
+                }
+                if let Some(error) = shot.rejection {
+                    println!("portal impact rejected: {error}");
+                } else if let Err(error) = self.fire_player_with_facing(
+                    shot.channel,
+                    shot.eye,
+                    shot.direction,
+                    shot.facing,
+                    runtime,
+                    world,
+                ) {
+                    println!("portal impact rejected: {error}");
+                }
+            } else {
+                self.shots.push(shot);
+            }
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn player_target(
+        &self,
+        index: usize,
+        eye: Vec3,
+        direction: Vec3,
+        facing: Vec3,
+        runtime: &crate::entity::Runtime,
+        world: &crate::play::World,
+    ) -> Result<Portal, String> {
         if !runtime
             .portal_inventory
             .get(index)
@@ -152,10 +284,121 @@ impl Game {
         }) {
             return Err("portal overlaps paired portal".into());
         }
-        self.place(index, portal);
-        world.portals = self.portals;
-        println!("player portal {index}: {portal:?}");
         Ok(portal)
+    }
+    pub fn cancel_shots(&mut self) {
+        self.shots.clear();
+        self.impacts.clear();
+    }
+    /// Camera-facing additive ribbons. No Source particle-system parity is implied.
+    pub fn shot_vertices(&self, eye: Vec3) -> Vec<crate::Vertex> {
+        let mut vertices = Vec::new();
+        for shot in &self.shots {
+            let head = shot.position();
+            let direction = (shot.target - shot.muzzle).normalize_or_zero();
+            let tail = head - direction * head.distance(shot.muzzle).min(110.);
+            let side = direction
+                .cross(eye - head)
+                .try_normalize()
+                .unwrap_or(Vec3::Y);
+            let color = if shot.channel == 0 {
+                [0.05, 0.32, 1.]
+            } else {
+                [1., 0.30, 0.025]
+            };
+            for (width, color) in [(5., color), (0.8, [0.85, 0.92, 1.])] {
+                for sign in [-1., 1.] {
+                    let points = [
+                        (tail, [0.; 3]),
+                        (head, color),
+                        (head + side * width * sign, [0.; 3]),
+                        (tail + side * width * sign, [0.; 3]),
+                    ];
+                    for i in [0, 1, 2, 0, 2, 3] {
+                        vertices.push(crate::Vertex {
+                            position: points[i].0.to_array(),
+                            color: points[i].1,
+                        });
+                    }
+                }
+            }
+            let toward = (eye - head).normalize_or_zero();
+            let head_side = toward.cross(Vec3::Z).try_normalize().unwrap_or(Vec3::Y);
+            let head_up = head_side.cross(toward).normalize_or_zero();
+            for (radius, tint) in [(7., color), (2., [0.85, 0.92, 1.])] {
+                for i in 0..24 {
+                    let a = i as f32 * std::f32::consts::TAU / 24.;
+                    let b = (i + 1) as f32 * std::f32::consts::TAU / 24.;
+                    for (point, color) in [
+                        (head, tint),
+                        (
+                            head + (head_side * a.cos() + head_up * a.sin()) * radius,
+                            [0.; 3],
+                        ),
+                        (
+                            head + (head_side * b.cos() + head_up * b.sin()) * radius,
+                            [0.; 3],
+                        ),
+                    ] {
+                        vertices.push(crate::Vertex {
+                            position: point.to_array(),
+                            color,
+                        });
+                    }
+                }
+            }
+            // Initial energy bloom at the muzzle, fading over the first 60 ms.
+            if shot.age < 0.06 {
+                let up = side.cross(direction).normalize_or_zero();
+                let radius = 6. * (1. - shot.age / 0.06);
+                for i in 0..16 {
+                    let a = i as f32 * std::f32::consts::TAU / 16.;
+                    let b = (i + 1) as f32 * std::f32::consts::TAU / 16.;
+                    for p in [
+                        shot.muzzle,
+                        shot.muzzle + (side * a.cos() + up * a.sin()) * radius,
+                        shot.muzzle + (side * b.cos() + up * b.sin()) * radius,
+                    ] {
+                        vertices.push(crate::Vertex {
+                            position: p.to_array(),
+                            color,
+                        });
+                    }
+                }
+            }
+        }
+        for &(channel, center, age) in &self.impacts {
+            let toward = (eye - center).normalize_or_zero();
+            let side = toward.cross(Vec3::Z).try_normalize().unwrap_or(Vec3::Y);
+            let up = side.cross(toward).normalize_or_zero();
+            let radius = 8. + age * 110.;
+            let strength = (1. - age / 0.3).max(0.);
+            let color = if channel == 0 {
+                [0.05 * strength, 0.32 * strength, strength]
+            } else {
+                [strength, 0.30 * strength, 0.025 * strength]
+            };
+            let center = center + toward * 1.;
+            for i in 0..32 {
+                let a = i as f32 * std::f32::consts::TAU / 32.;
+                let b = (i + 1) as f32 * std::f32::consts::TAU / 32.;
+                let a = side * a.cos() + up * a.sin();
+                let b = side * b.cos() + up * b.sin();
+                let points = [
+                    center + a * radius,
+                    center + b * radius,
+                    center + b * (radius + 3.),
+                    center + a * (radius + 3.),
+                ];
+                for i in [0, 1, 2, 0, 2, 3] {
+                    vertices.push(crate::Vertex {
+                        position: points[i].to_array(),
+                        color,
+                    });
+                }
+            }
+        }
+        vertices
     }
     pub fn place(&mut self, index: usize, portal: Portal) {
         self.portals[index] = Some(portal);

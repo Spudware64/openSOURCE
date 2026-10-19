@@ -149,6 +149,9 @@ fn interactive_impl(
     };
     let mut normal_launched = false;
     let pellet_demo = std::env::var("SOURCE_PELLET_DEMO").ok();
+    // Bounded real-window diagnostic; staged camera/inventory, not physical input.
+    let shot_demo = std::env::var("SOURCE_SHOT_DEMO").ok();
+    if let Some(dir) = &shot_demo { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
     if let Some(dir) = &pellet_demo {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -249,7 +252,7 @@ fn interactive_impl(
         bind_group_layouts: &[&layout],
         push_constant_ranges: &[],
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let make_pipeline = |effects: bool| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: None,
         layout: Some(&pl),
         vertex: wgpu::VertexState {
@@ -266,7 +269,7 @@ fn interactive_impl(
             entry_point: "fs",
             targets: &[Some(wgpu::ColorTargetState {
                 format: config.format,
-                blend: None,
+                blend: if effects { Some(wgpu::BlendState { color:wgpu::BlendComponent {src_factor:wgpu::BlendFactor::One,dst_factor:wgpu::BlendFactor::One,operation:wgpu::BlendOperation::Add},alpha:wgpu::BlendComponent::OVER }) } else { None },
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -276,7 +279,7 @@ fn interactive_impl(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: true,
+            depth_write_enabled: !effects,
             depth_compare: wgpu::CompareFunction::Less,
             stencil: Default::default(),
             bias: Default::default(),
@@ -285,6 +288,8 @@ fn interactive_impl(
         multiview: None,
     });
 
+    let pipeline = make_pipeline(false);
+    let shot_pipeline = make_pipeline(true);
     let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         contents: bytemuck::cast_slice(&vertices),
@@ -437,7 +442,10 @@ fn interactive_impl(
                             let eye=player.position+Vec3::Z*player.eye_height();
                             let channel=usize::from(button==MouseButton::Right);
                             if runtime.portal_inventory[channel] {weapon_sequence="fire1";weapon_started=Instant::now();if let Some(audio)=&audio {audio.play(crate::audio::Event::one(audio_time,if channel==0 {"Weapon_Portalgun.fire_blue"} else {"Weapon_Portalgun.fire_red"},None));}}
-                            if let Err(error)=portal_game.fire_player_with_facing(usize::from(button==MouseButton::Right),eye,player.forward(),Vec3::new(player.yaw.cos(),player.yaw.sin(),0.),&runtime,&mut world){println!("portal placement rejected: {error}");}
+                            let forward = player.forward();
+                            let right = forward.cross(player.view_up).normalize_or_zero();
+                            let muzzle = eye + forward * 24. + right * 8. - player.view_up * 7.;
+                            if let Err(error)=portal_game.launch_player(channel,eye,forward,Vec3::new(player.yaw.cos(),player.yaw.sin(),0.),muzzle,&runtime,&world){println!("portal placement rejected: {error}");}
                             return;
                         }
                         controls.captured = window
@@ -461,6 +469,7 @@ fn interactive_impl(
                                             println!("cursor released");
                                         }
                                         crate::play::Action::Reset => {
+                                            portal_game.cancel_shots();
                                             player = Player::new(world.spawn, world.yaw);
                                             render_position = crate::play::RenderPosition::default();
                                             println!("reset");
@@ -511,7 +520,25 @@ fn interactive_impl(
                             down(KeyCode::KeyD) - down(KeyCode::KeyA),
                             down(KeyCode::Space) - down(KeyCode::ShiftLeft),
                         );
-                        if let Some(route)=chamber_route.as_mut() {
+                        if shot_demo.is_some() {
+                            if frames == 0 {
+                                player = Player::new(Vec3::new(-900.,-224.,576.), std::f32::consts::PI);
+                                runtime.portal_inventory = [true;2];
+                                portal_game.portals = [None;2]; world.portals = [None;2];
+                            }
+                            if frames == 90 { player.yaw = std::f32::consts::PI + 0.45; }
+                            if frames == 30 || frames == 90 {
+                                let channel = usize::from(frames == 90);
+                                let eye = player.position + Vec3::Z * player.eye_height();
+                                let forward = player.forward();
+                                let muzzle = eye + forward*24. + forward.cross(player.view_up).normalize_or_zero()*8. - player.view_up*7.;
+                                portal_game.launch_player(channel,eye,forward,forward,muzzle,&runtime,&world).unwrap();
+                                weapon_sequence = "fire1"; weapon_started = Instant::now();
+                                println!("SHOT_DEMO launch {channel} {:?}",portal_game.shots);
+                            }
+                            portal_game.advance_shots(1./60., &runtime, &mut world);
+                            accumulator = 0.;
+                        } else if let Some(route)=chamber_route.as_mut() {
                             for _ in 0..4 {match route.tick(&mut player,&mut runtime,&mut world,&mut portal_game) {
                                 Ok(true)=>break,Ok(false)=>{},Err(error)=>{eprintln!("{error}");target.exit();return;}
                             }}
@@ -668,6 +695,7 @@ fn interactive_impl(
                             // 120 Hz entity simulation steps per independently rendered 30 Hz frame.
                             for _ in 0..4 {
                                 runtime.tick(1. / 120., &mut player, &mut world);
+                                portal_game.advance_shots(1. / 120., &runtime, &mut world);
                             }
                             accumulator = 0.;
                             println!(
@@ -684,6 +712,7 @@ fn interactive_impl(
                                 println!("smoke native cursor grab {}", controls.captured);
                             }
                             runtime.tick(1. / 120., &mut player, &mut world);
+                            portal_game.advance_shots(1. / 120., &runtime, &mut world);
                             if stationary_smoke.is_some() {
                                 player.step(&world, Vec3::ZERO, false, 1. / 120.);
                             } else {
@@ -706,6 +735,7 @@ fn interactive_impl(
                                     (player.position, support, support.and_then(|i| runtime.origins.get(i).copied()), support.and_then(|i| resolved.get(i).copied()))
                                 });
                                 runtime.tick(1. / 120., &mut player, &mut world);
+                                portal_game.advance_shots(1. / 120., &runtime, &mut world);
                                 portal_game.sync_runtime(&mut runtime,&mut world);
                                 let trace_runtime_position = player.position;
                                 player.step(&world, input, down(KeyCode::Space) > 0., 1. / 120.);
@@ -791,6 +821,7 @@ fn interactive_impl(
                             );
                         }
                         if player.position.z < world.spawn.z - 2000. {
+                            portal_game.cancel_shots();
                             player = Player::new(world.spawn, world.yaw);
                             render_position = crate::play::RenderPosition::default();
                         }
@@ -847,6 +878,8 @@ fn interactive_impl(
                             }
                         };
                         crate::frame_profile::mark(4);
+                        let shot_vertices = portal_game.shot_vertices(eye);
+                        let shot_buffer = (!shot_vertices.is_empty()).then(|| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label:Some("travelling portal energy ribbons"),contents:bytemuck::cast_slice(&shot_vertices),usage:wgpu::BufferUsages::VERTEX }));
                         let cv = frame.texture.create_view(&Default::default());
                         let dv = &depth;
                         let mut enc = device.create_command_encoder(&Default::default());
@@ -889,6 +922,12 @@ fn interactive_impl(
                                 pass.set_bind_group(0, &bind, &[]);
                                 pass.set_vertex_buffer(0, vb.slice(..));
                                 pass.draw(0..vertices.len() as u32, 0..1);
+                            }
+                            if let Some(buffer) = &shot_buffer {
+                                pass.set_pipeline(&shot_pipeline);
+                                pass.set_bind_group(0, &bind, &[]);
+                                pass.set_vertex_buffer(0, buffer.slice(..));
+                                pass.draw(0..shot_vertices.len() as u32, 0..1);
                             }
                         }
 
@@ -977,6 +1016,14 @@ fn interactive_impl(
                         }
                         crate::frame_profile::mark(6);
                         queue.submit(Some(enc.finish()));
+                        if let Some(dir) = &shot_demo {
+                            if [0,30,32,36,42,55,90,92,96,102,120].contains(&frames) {
+                                let path = format!("{dir}/shot-{frames:04}.png");
+                                capture_surface(&device,&queue,&frame.texture,config.width,config.height,config.format,&path).unwrap();
+                                println!("SHOT_DEMO frame {frames} pending {} portals {:?} capture {path}",portal_game.shots.len(),world.portals);
+                            }
+                            if frames == 120 { assert!(portal_game.shots.is_empty()); target.exit(); }
+                        }
                         if std::env::var_os("SOURCE_WEAPON_DEMO").is_some() && [30,120,150,160,175,220].contains(&frames) {
                             let path=format!("evidence/weapon-{frames:04}.png");
                             if let Err(e)=capture_surface(&device,&queue,&frame.texture,config.width,config.height,config.format,&path){eprintln!("weapon capture: {e}");}
