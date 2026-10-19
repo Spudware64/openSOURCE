@@ -19,6 +19,23 @@ fn panel(p: Portal, width: f32, height: f32) -> Surface {
 }
 
 #[test]
+fn unposed_brush_faces_cannot_occlude_or_contaminate_world_patch_fitting() {
+    let p = Portal::new(Vec3::ZERO, Vec3::X, Vec3::Z);
+    let world = panel(p, 100., 100.);
+    let mut local = world.clone();
+    local.model = 1;
+    local.allowed = false;
+    local.material = "metal/noportal".into();
+    let surfaces = Surfaces {
+        faces: vec![world, local],
+    };
+    assert!(
+        surfaces.place(Vec3::X * 100., -Vec3::X).is_ok(),
+        "unposed local brush geometry is not a world-space obstruction"
+    );
+}
+
+#[test]
 fn fitting_rejects_small_disconnected_forbidden_and_occluded_panels() {
     let p = Portal::new(Vec3::ZERO, Vec3::X, Vec3::Z);
     let eye = p.normal * 100.;

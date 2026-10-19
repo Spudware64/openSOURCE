@@ -184,8 +184,8 @@ impl Game {
         let end = eye + direction.normalize_or_zero() * 8192.;
         let (fraction, _) = world.trace_point(eye, end);
         let direction = direction.normalize_or_zero();
-        let surface_distance = self
-            .automatic_surfaces
+        let posed = self.automatic_surfaces.as_ref().map(|s| s.posed(runtime));
+        let surface_distance = posed
             .as_ref()
             .into_iter()
             .flat_map(|s| &s.faces)
@@ -664,7 +664,8 @@ impl Surfaces {
         }
         let center = eye + direction * best;
         if self.faces.iter().any(|s| {
-            !s.allowed
+            s.model == 0
+                && !s.allowed
                 && !s.material.starts_with("tools/")
                 && s.normal.dot(face.normal) > 0.999
                 && s.normal.dot(center - s.points[0]).abs() < 0.1
@@ -702,7 +703,8 @@ impl Surfaces {
         // footprint, not the conservative fired-portal rectangle. Do not bump
         // these a second time (notably the floor-adjacent chamber00 portals).
         if self.faces.iter().any(|s| {
-            s.allowed
+            s.model == 0
+                && s.allowed
                 && s.normal.dot(portal.normal) > 0.9999
                 && s.normal.dot(portal.center - s.points[0]).abs() < 0.1
                 && s.contains(portal.center)
@@ -713,7 +715,8 @@ impl Surfaces {
             .faces
             .iter()
             .filter(|s| {
-                s.allowed
+                s.model == 0
+                    && s.allowed
                     && s.normal.dot(portal.normal).abs() < 0.01
                     && s.normal.dot(portal.center - s.points[0]).abs() < 0.1
                     && s.contains(portal.center)

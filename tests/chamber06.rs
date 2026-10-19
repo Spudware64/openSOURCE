@@ -57,6 +57,45 @@ fn chamber06_blue_shot_hits_actual_parented_white_panel() {
 }
 
 #[test]
+fn chamber06_travelling_blue_shot_uses_the_moved_panel_pose() {
+    use opensource::{
+        assets::Assets,
+        portal::{Game, Surfaces},
+    };
+    let b = std::fs::read("../portal-original/portal/maps/testchmb_a_06.bsp").unwrap();
+    let fs = Assets::from_game("../portal-original/portal", Some(&b)).unwrap();
+    let (mut r, mut w, mut p) = setup();
+    r.direct_launch_loadout();
+    p.position = Vec3::new(-1800., 128., 48.);
+    let initial = r.model_transforms().0[33];
+    r.input("fling_pillar2_door_bottom_bottom_a2", "Close", "");
+    step(&mut r, &mut w, &mut p, 500);
+    let target = r.model_transforms().0[33] + Vec3::X * 160.;
+    assert!(r.model_transforms().0[33].x > initial.x + 180.);
+    assert!(w.model_origins[33].distance(r.model_transforms().0[33]) < 0.001);
+    let eye = target + Vec3::X * 100.;
+    let mut game = Game::load(&b).unwrap();
+    game.automatic_surfaces = Some(Surfaces::load(&b, &fs).unwrap());
+    game.launch_player(0, eye, -Vec3::X, -Vec3::X, eye - Vec3::X * 24., &r, &w)
+        .unwrap();
+    assert!(
+        game.portals[0].is_none(),
+        "placement must wait for projectile arrival"
+    );
+    assert!(game.shots[0].target.distance(target) < 0.1);
+    game.advance_shots(1., &r, &mut w);
+    assert!(
+        game.portals[0]
+            .expect("blue bolt must place on moved white panel")
+            .center
+            .distance(target)
+            < 0.1
+    );
+    assert!(w.portals[0].unwrap().center.distance(target) < 0.1);
+    assert!(game.portals[1].is_none());
+}
+
+#[test]
 fn chamber06_start_open_door_completion_drives_delayed_next_stage() {
     let (mut r, mut w, mut p) = setup();
     p.position = Vec3::new(-1800., 128., 48.);
