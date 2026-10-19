@@ -2,11 +2,15 @@
 
 ## Status
 
+Production now conservatively rejects static contiguous geometry chunks per view
+before submission (see implementation/results below). Earlier sections describe
+the diagnostic baseline, not the current submission path.
+
 The Windows Intel/Vulkan severe stall is **not reproduced or fixed** here.
 The user tested release as well as debug and reports both laggy. The earlier
 invisible-aperture fix does not address the remaining visible-portal case.
-This change adds diagnostics, not a speculative quality/resolution reduction or
-rendering optimisation. Original assets were read-only; no original executable
+The initial diagnostic change added instrumentation, not a speculative
+quality/resolution reduction. Original assets were read-only; no original executable
 was run. Local GPU measurements are Apple M4/Metal only.
 
 ## Shipped Source/Portal evidence (REA, not public source)
@@ -188,3 +192,58 @@ Strict Clippy (`cargo clippy --example portal_render_profile -- -D warnings`)
 is also blocked by existing warnings in `window.rs`, `player_query.rs`, `play.rs`,
 `controller_trace.rs` and the pre-existing range loops in `frame_profile.rs`.
 No unrelated lint cleanup is bundled.
+
+## Implemented reduction 1: conservative static submission chunks
+
+`scene_visibility.rs` caches AABBs for contiguous 3,072-vertex chunks at upload.
+Each view rejects only boxes wholly outside one homogeneous camera plane or
+wholly behind its world exit plane; touching/crossing boxes remain. Adjacent
+surviving ranges merge, preserving original primitive order and one shared
+vertex buffer. No per-frame vertex upload, texture/resolution change, or new
+index buffer. Any chunk touching an animation range or nonzero brush/model
+index is **never rejected**: moved, parented and skinned geometry cannot inherit
+stale static bounds. Translucent sorting is unchanged in this first reduction.
+This is full-camera/exit-plane rejection, **not** portal-tight frusta or PVS.
+
+Actual `escape_02`, same authored-spawn staged pair, release M4/Metal:
+
+| Opaque submissions | Baseline | Chunked |
+| --- | ---: | ---: |
+| Main vertices | 4,230,378 | 2,921,706 |
+| Remote vertices | 4,230,378 | 2,940,138 |
+| Main opaque draws | 1 | 30 |
+| Remote opaque draws | 1 | 29 |
+
+The 310 sorted translucent draws and two pellet draws remain per view. Submission
+counts are not visible triangles or GPU invocation counts. Seven 640x360 GPU
+readback comparisons against the full-range reference had **zero changed
+pixels**: center, lateral aperture edges, near-plane approach, rotated, away,
+and moved geometry. The moved case translates all 214 non-world model origins
+and uploads translated vertices in all 76 animation ranges after GPU creation.
+This exercises stale-bound safety, not a full gameplay animation route.
+
+80-sample completed-wall medians, reference then chunked:
+
+| Resolution | None | Visible | Offscreen |
+| --- | --- | --- | --- |
+| 640x360 | 9.213 → 9.100 ms | 9.422 → 9.385 ms | 9.196 → 9.218 ms |
+| 1280x720 | 9.212 → 9.113 ms | 9.530 → 9.381 ms | 9.207 → 9.237 ms |
+
+Visible encode medians: 0.308 → 0.312 ms / 0.321 → 0.313 ms. These tiny
+wall-time differences are **not a demonstrated frame-time speedup**. The
+benchmark excludes view-uniform updates/CPU selection (outside encode timing),
+simulation, presentation and uploads. The established outcome is reduced vertex
+submission with equal pixels, not a Windows stall fix.
+
+Reproduce differential verification and reference measurements:
+
+```sh
+SOURCE_VERIFY_VISIBILITY=1 cargo run --release --example portal_render_profile -- ../portal-original/portal escape_02 80
+SOURCE_REFERENCE_RENDER=1 cargo run --release --example portal_render_profile -- ../portal-original/portal escape_02 80
+```
+
+New bounds/range tests were observed red before implementation, then green.
+Focused lib/profile/portal tests pass. Full `cargo test --quiet --no-fail-fast`
+reproduces exactly the three AGENTS.md baseline failing targets: chamber00_exit,
+gun_pickup and rigid; no other failing target. Local raw evidence (not assets or
+committed captures): `evidence/portal-chunks-{before,reference,verified,full-tests,focused}.log`.

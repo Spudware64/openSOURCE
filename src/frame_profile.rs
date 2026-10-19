@@ -167,14 +167,13 @@ pub fn count(index: usize, n: u64) {
 }
 /// Count API submissions, including zero-vertex pellet draws, not GPU execution.
 /// Called only after the shared portal visibility gate admits a remote pass.
-pub fn scene_view(view: usize, vertices: u64, translucent: u64, pellets: u64) {
+pub fn scene_view(view: usize, vertices: u64, translucent: u64, pellets: u64, opaque_draws: u64) {
     PROFILE.with(|v| {
         if let Some(p) = v.borrow_mut().as_mut() {
             let remote = usize::from(view != 0);
             p.counts[7 + remote] += 1;
-            p.counts[9 + remote] += 3 + translucent;
-            // The opaque pass currently submits the entire mesh (including
-            // blended geometry), followed by sorted translucent triangles.
+            p.counts[9 + remote] += opaque_draws + 2 + translucent;
+            // Count selected opaque ranges, then sorted translucent triangles.
             p.counts[11 + remote] += vertices + translucent * 3 + pellets * 2;
             p.counts[13] += translucent;
         }
@@ -299,8 +298,8 @@ mod tests {
             })
         });
         begin();
-        scene_view(0, 300, 4, 6);
-        scene_view(2, 600, 8, 0);
+        scene_view(0, 300, 4, 6, 1);
+        scene_view(2, 600, 8, 0, 1);
         PROFILE.with(|v| {
             let p = v.borrow();
             let counts = &p.as_ref().unwrap().counts;

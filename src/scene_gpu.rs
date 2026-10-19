@@ -1,5 +1,7 @@
 use crate::scene::{MeshVertex, Scene, LIGHT_SIZE, TILE};
 use glam::{Mat4, Vec3};
+#[path = "scene_visibility.rs"]
+mod visibility;
 use wgpu::util::DeviceExt;
 pub(crate) struct GpuScene {
     pellets: wgpu::Buffer,
@@ -17,6 +19,9 @@ pub(crate) struct GpuScene {
     camera: [wgpu::Buffer; 3],
     models: wgpu::Buffer,
     count: u32,
+    chunks: Vec<visibility::Chunk>,
+    ranges: [std::cell::RefCell<Vec<std::ops::Range<u32>>>; 3],
+    reference: std::cell::Cell<bool>,
 }
 impl GpuScene {
     pub fn new(
@@ -262,6 +267,9 @@ impl GpuScene {
             camera,
             models,
             count: scene.vertices.len() as u32,
+            chunks: visibility::build(&scene.vertices, &scene.animations.iter().map(|a| a.range.clone()).collect::<Vec<_>>(), 3072),
+            ranges: std::array::from_fn(|_| std::cell::RefCell::new(Vec::new())),
+            reference: std::cell::Cell::new(false),
         };
         result.update(queue, Mat4::IDENTITY, &scene.origins);
         Ok(result)
@@ -326,6 +334,11 @@ impl GpuScene {
     }
     pub fn update_view(&self, queue: &wgpu::Queue, index: usize, matrix: Mat4, clip: glam::Vec4) {
         self.matrices[index].set(matrix);
+        // Model zero normally has zero translation, but respect the same uniform
+        // transform as the vertex shader rather than assuming it at the API seam.
+        let origin = self.origins.borrow().first().copied().unwrap_or(Vec3::ZERO);
+        let local_clip = glam::Vec4::new(clip.x, clip.y, clip.z, clip.w + clip.truncate().dot(origin));
+        *self.ranges[index].borrow_mut() = visibility::ranges(&self.chunks, matrix * Mat4::from_translation(origin), local_clip);
         let mut data = [0f32; 20];
         data[..16].copy_from_slice(&matrix.to_cols_array());
         data[16..].copy_from_slice(&clip.to_array());
@@ -334,17 +347,28 @@ impl GpuScene {
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         self.draw_view(pass, 0);
     }
+    /// Diagnostic differential path; uses the same geometry/shaders without CPU rejection.
+    #[allow(dead_code)] // Used by the renderer-only differential example.
+    pub fn set_reference(&self, reference: bool) { self.reference.set(reference); }
+    pub fn submitted_work(&self, view: usize) -> (u64, u64) {
+        if self.reference.get() { return (self.count as u64, 1); }
+        let ranges = self.ranges[view].borrow();
+        (ranges.iter().map(|r| (r.end-r.start) as u64).sum(), ranges.len() as u64)
+    }
     pub fn draw_view<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, view: usize) {
+        let (vertices, draws) = self.submitted_work(view);
         crate::frame_profile::scene_view(
             view,
-            self.count as u64,
+            vertices,
             self.translucent.len() as u64,
             self.pellet_count.get() as u64,
+            draws,
         );
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind[view], &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
-        pass.draw(0..self.count, 0..1);
+        if self.reference.get() { pass.draw(0..self.count, 0..1); }
+        else { for range in self.ranges[view].borrow().iter() { pass.draw(range.clone(), 0..1); } }
         pass.set_pipeline(&self.modulate_pipeline);
         pass.set_vertex_buffer(0,self.pellets.slice(..));
         pass.draw(0..self.pellet_count.get(),0..1);

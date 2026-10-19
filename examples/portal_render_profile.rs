@@ -11,6 +11,9 @@ mod portal_gpu;
 #[allow(dead_code)]
 #[path = "../src/scene_gpu.rs"]
 mod scene_gpu;
+#[path = "support/portal_visibility_verify.rs"]
+mod visibility_verify;
+use visibility_verify::verify_visibility;
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,7 +94,7 @@ fn main() -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     let assets = opensource::assets::Assets::from_game(game, Some(&bytes))?;
-    let scene = scene::Scene::load(&bytes, &assets)?;
+    let mut scene = scene::Scene::load(&bytes, &assets)?;
     let world = opensource::play::World::parse(&bytes)?;
     let eye = world.spawn + Vec3::Z * 64.;
     let forward = Vec3::new(world.yaw.cos(), world.yaw.sin(), 0.);
@@ -131,6 +134,10 @@ fn main() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let gpu = scene_gpu::GpuScene::new(&device, &queue, &scene, format)?;
+        if std::env::var_os("SOURCE_VERIFY_VISIBILITY").is_some() {
+            verify_visibility(&device, &queue, &gpu, &mut scene, eye, forward, a, b)?;
+        }
+        gpu.set_reference(std::env::var_os("SOURCE_REFERENCE_RENDER").is_some());
         for (width, height) in [(640, 360), (1280, 720)] {
             let texture = |format| {
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -196,6 +203,7 @@ fn main() -> Result<(), String> {
                         );
                     }
                 }
+                println!("work {width}x{height} phase={phase} main={:?} remote={:?} (opaque vertices, draws)", gpu.submitted_work(0), gpu.submitted_work(1));
                 device.poll(wgpu::Maintain::Wait);
                 let mut encode = Vec::new();
                 let mut complete = Vec::new();
