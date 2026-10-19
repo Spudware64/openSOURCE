@@ -4,5 +4,5 @@
 - Run relevant tests before each commit and the full suite for integration milestones. Record failures honestly; do not present the initial baseline as green.
 - Push verified commits to the project's Forgejo origin when available. Never force-push shared history.
 - Keep original Portal assets read-only and outside Git. Do not commit generated scene payloads, game assets, builds, screenshots or video.
-- Current baseline: `cargo test --quiet` fails `tests/rigid.rs::blocked_maker_does_not_embed_or_fire_spawn_output` (observed left 1, expected 2). Preserve this known failure until fixed in a separate commit.
+- Current baseline: `cargo test --quiet --no-fail-fast` has three failures reproduced at `9f647d1`: `tests/rigid.rs::blocked_maker_does_not_embed_or_fire_spawn_output` (left 1, expected 2), `tests/chamber00_exit.rs::authored_second_room_open_gate_crosses_fitted_blue2`, and `tests/gun_pickup.rs::actual_weapon_pickup_fires_its_exit_outputs_once`. Preserve these known failures until fixed in separate commits; see `docs/chamber06-panels.md` for verification scope.
 - Browser export scripts are preserved in `tools/web/`; they currently assume generated scene files alongside the scripts. Export/build path portability and browser gameplay parity remain unfinished. Do not describe cube/portal state toggles as functioning Portal gameplay.
