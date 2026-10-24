@@ -1532,6 +1532,17 @@ impl Runtime {
                 let inside = !s.killed && s.enabled && flags & 1 != 0
                     && (player.position - Vec3::new(16., 16., 0.)).cmplt(hi).all()
                     && (player.position + Vec3::new(16., 16., player.height())).cmpgt(lo).all();
+                let before = s.touching;
+                self.states[id].touching = inside;
+                if inside && !before {
+                    self.fire(id, "OnStartTouch");
+                    self.fire(id, "OnStartTouchAll");
+                }
+                if !inside && before {
+                    self.fire(id, "OnEndTouch");
+                    self.fire(id, "OnEndTouchAll");
+                }
+                let s = &self.states[id];
                 let eye = player.position + Vec3::Z * player.eye_height();
                 let direction = if flags & 256 != 0 { player.velocity.normalize_or_zero() } else { player.forward() };
                 let looking = inside && s.entity.get("target")
