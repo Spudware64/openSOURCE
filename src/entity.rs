@@ -1801,6 +1801,8 @@ impl Runtime {
             }
         }
         if changed {
+            // Existing penetration must not freeze unrelated movers or prevent escape.
+            let old_overlaps: HashMap<_, _> = world.overlap_depths(old_player, player.height()).collect();
             let (origins, rotations) = self.model_transforms();
             if let Some(model) = support {
                 // A solid child may have an unchanged raw origin while its
@@ -1811,7 +1813,9 @@ impl Runtime {
                 player.position = origins[model] + rotations[model] * local;
             }
             world.update_transforms(&origins, &self.visible, &rotations);
-            if world.overlaps(player.position, player.height()) {
+            if world.overlap_depths(player.position, player.height()).any(|(id, depth)| {
+                old_overlaps.get(&id).is_none_or(|old| depth > *old)
+            }) {
                 // Transactional movement: never crush a carried rider or emit rejected OnPass.
                 player.position = old_player;
                 for (id, next, running) in old_trains {

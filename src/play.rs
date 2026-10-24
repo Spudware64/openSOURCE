@@ -85,6 +85,7 @@ pub struct World {
     pub portals: [Option<crate::portal::Portal>; 2],
     pub brushes: Vec<Vec<Plane>>,
     brush_contents: Vec<i32>,
+    brush_ids: Vec<(usize, usize)>,
     model_contents: Vec<Vec<i32>>,
     pub(crate) rigid: Vec<Vec<Plane>>,
     pub(crate) rigid_ids: Vec<usize>,
@@ -196,6 +197,7 @@ impl World {
             model_brushes: vec![brushes.clone()],
             model_contents: vec![vec![1; brushes.len()]],
             brush_contents: vec![1; brushes.len()],
+            brush_ids: (0..brushes.len()).map(|index| (0, index)).collect(),
             model_origins: vec![Vec3::ZERO],
             model_solid: vec![true],
             brushes,
@@ -204,17 +206,30 @@ impl World {
         }
     }
     pub fn overlaps(&self, position: Vec3, height: f32) -> bool {
+        self.overlap_depths(position, height).next().is_some()
+    }
+    pub(crate) fn overlap_depths(&self, position: Vec3, height: f32) -> impl Iterator<Item = ((usize, usize), f32)> + '_ {
         let center = position + Vec3::Z * height * 0.5;
         let extent = Vec3::new(16., 16., height * 0.5);
         self.brushes
             .iter()
             .chain(self.rigid.iter())
             .enumerate()
-            .any(|(index, b)| {
-                !(index < self.model_brushes[0].len() && self.aperture(b, center, center, extent))
-                    && b.iter().all(|p| {
-                        p.normal.dot(center) - p.distance - p.normal.abs().dot(extent) < -0.001
-                    })
+            .filter_map(move |(index, b)| {
+                if index < self.model_brushes[0].len() && self.aperture(b, center, center, extent) {
+                    return None;
+                }
+                let depth = b.iter().try_fold(f32::INFINITY, |depth, p| {
+                    let penetration = -(p.normal.dot(center) - p.distance - p.normal.abs().dot(extent));
+                    (penetration > 0.001).then_some(depth.min(penetration))
+                })?;
+                let id = if index < self.brushes.len() {
+                    self.brush_ids.get(index).copied().unwrap_or((usize::MAX - 1, index))
+                } else {
+                    let index = index - self.brushes.len();
+                    (usize::MAX, self.rigid_ids.get(index).copied().unwrap_or(index))
+                };
+                Some((id, depth))
             })
     }
     pub fn parse(b: &[u8]) -> Result<Self, String> {
@@ -347,6 +362,7 @@ impl World {
             rigid_ids: vec![],
             brushes: vec![],
             brush_contents: vec![],
+            brush_ids: vec![],
             model_contents,
             spawn,
             yaw,
@@ -374,6 +390,7 @@ impl World {
         self.model_origins = origins.to_vec();
         self.brushes.clear();
         self.brush_contents.clear();
+        self.brush_ids.clear();
         for (model, brushes) in self.model_brushes.iter().enumerate() {
             if !self.model_solid[model] || !enabled.get(model).copied().unwrap_or(false) {
                 continue;
@@ -387,6 +404,7 @@ impl World {
                 // Public synthetic geometry defaults to CONTENTS_SOLID.
                 let contents = self.model_contents.get(model).and_then(|v| v.get(index)).copied().unwrap_or(1);
                 self.brush_contents.push(contents);
+                self.brush_ids.push((model, index));
                 self.brushes.push(
                     brush
                         .iter()
