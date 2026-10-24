@@ -1,6 +1,6 @@
 # openSOURCE
 
-> Code and documentation generated with Hermes Agent; project direction and testing by HUMANS NOT AI 💪
+> Code and documentation generated with Hermes Agent + Codex; project direction and testing by HUMANS NOT AI 💪
 
 An experimental Source 1 reimplementation written in Rust, with **wgpu** rendering and **Rapier/Parry** physics and collision queries. Currently focused on Portal.
 
