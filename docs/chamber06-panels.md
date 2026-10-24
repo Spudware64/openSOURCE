@@ -29,3 +29,47 @@ cargo run -- --game ../portal-original/portal --map testchmb_a_06 --play
 ```
 
 Game assets remain external and read-only. Captures, logs and build products are not committed.
+
+## Third-room floor crossing (2026-10-24)
+
+The supplied recording shows the player stopped at approximately
+`(606.9,123.7,-192)` over the authored orange floor portal. A failing regression
+reproduced the same stop at `z=-191.96875` when blue was fitted to third-room
+parented panel model 22. Placement accepted that panel, but player sweep,
+overlap, rim and destination-clearance queries only cut apertures in world-model
+brushes. Consequently the destination panel was treated as an obstruction and
+the source floor stayed solid.
+
+Those queries now include tracked, posed solid BSP brush submodels. Extra
+collision blockers and rigid objects still obstruct an exit; the aperture remains bounded by the existing fit and rim
+checks. Overlap queries also share destination-clearance results within one
+query instead of repeating the exit scan for each backing layer. The cache is
+not retained across queries or world changes.
+
+`tests/chamber06_portal.rs` loads the actual complete map through `GameRoot` and
+checks the recorded floor approach against the initial and moved parent-panel
+poses. Both cross exactly once into a clear exit. The unit cache regression
+requires one exit scan for 128 backing layers and checks that a subsequent query
+sees a newly blocked destination. Existing portal, rejected-exit, rim, held-floor
+and chamber 06 tests pass. The first broad run caught an extra blocker being
+misclassified as portal backing; restricting eligibility to tracked BSP brush
+IDs fixed that regression, and all eight cube portal regression tests then passed.
+
+A temporary native staging driver placed this floor/panel pair and the recorded
+approach pose, then used the normal interactive runtime, controller and renderer.
+The Intel Iris Xe GL capture recorded a crossing and 945 complete warm frames:
+median frame gap **16.696 ms**, simulation **3.851 ms**, controller **1.285 ms**,
+and portal-rim work **0.459 ms**. This establishes a bounded staged crossing near
+60 FPS, not a mouse-driven third-room playthrough or proof that every low-FPS
+case has the same cause. The temporary driver was removed; original assets,
+recording, frame data and generated images remain outside Git. Portal attachment
+or fizzling after its backing panel subsequently moves remains outside this fix.
+
+Final verification: `cargo test --offline --quiet --no-fail-fast --
+--test-threads=1` reported **242 passed, 1 failed, 1 ignored**. The sole remaining
+failure is `pedestal_render::actual_pedestal_child_mesh_follows_rotating_parent`,
+also reproduced before this fix with the separate pending GPU rotation changes.
+Its CPU-vertex assertion is not changed or bundled into this commit. The new
+chamber 06 crossing, cache and all cube portal regressions pass. The final native
+binary was rebuilt after removing the temporary staging driver. This run is not
+claimed to be fully green; the earlier historical failure records remain intact.

@@ -15,6 +15,9 @@ mod aperture_cache_tests {
         let open = world.trace_cuboid(Vec3::X * 10., Vec3::ZERO, Vec3::ONE);
         assert_eq!(open.0, 1.);
         assert_eq!(APERTURE_EXIT_CHECKS.with(|n| n.get()), 1, "identical per-sweep exit clearance was recomputed for backing layers");
+        APERTURE_EXIT_CHECKS.with(|n| n.set(0));
+        assert!(!world.overlaps_cuboid(Vec3::X * 10., Vec3::ONE));
+        assert_eq!(APERTURE_EXIT_CHECKS.with(|n| n.get()), 1, "overlap query recomputed exit clearance for backing layers");
         // A new query must see destination changes; this is not a persistent cache.
         world.rigid.push(brush(Vec3::X * 208.));
         let blocked = world.trace_cuboid(Vec3::X * 10., Vec3::ZERO, Vec3::ONE);
@@ -211,12 +214,13 @@ impl World {
     pub(crate) fn overlap_depths(&self, position: Vec3, height: f32) -> impl Iterator<Item = ((usize, usize), f32)> + '_ {
         let center = position + Vec3::Z * height * 0.5;
         let extent = Vec3::new(16., 16., height * 0.5);
+        let mut exit_clearance = [None; 2];
         self.brushes
             .iter()
             .chain(self.rigid.iter())
             .enumerate()
             .filter_map(move |(index, b)| {
-                if index < self.model_brushes[0].len() && self.aperture(b, center, center, extent) {
+                if index < self.brush_ids.len() && self.aperture_except_cached(b, [center, center], extent, None, &mut exit_clearance) {
                     return None;
                 }
                 let depth = b.iter().try_fold(f32::INFINITY, |depth, p| {
@@ -438,18 +442,20 @@ impl World {
         self.trace_hull(start, end, Vec3::ZERO, Vec3::ZERO, true, Some(target), MASK_SOLID)
     }
     pub fn overlaps_cuboid(&self, center: Vec3, extent: Vec3) -> bool {
+        let mut exit_clearance = [None; 2];
         self.brushes
             .iter()
             .chain(self.rigid.iter())
             .enumerate()
             .any(|(index, b)| {
-                !(index < self.model_brushes[0].len() && self.aperture(b, center, center, extent))
+                !(index < self.brush_ids.len() && self.aperture_except_cached(b, [center, center], extent, None, &mut exit_clearance))
                     && b.iter().all(|p| {
                         p.normal.dot(center) - p.distance - p.normal.abs().dot(extent) < -0.001
                     })
             })
     }
     pub(crate) fn body_overlap(&self, id: usize, center: Vec3, extent: Vec3) -> bool {
+        let mut exit_clearance = [None; 2];
         self.brushes
             .iter()
             .chain(self.rigid.iter())
@@ -460,8 +466,8 @@ impl World {
                 {
                     return false;
                 }
-                !(index < self.model_brushes[0].len()
-                    && self.aperture_except(b, center, center, extent, Some(id)))
+                !(index < self.brush_ids.len()
+                    && self.aperture_except_cached(b, [center, center], extent, Some(id), &mut exit_clearance))
                     && b.iter().all(|p| {
                         p.normal.dot(center) - p.distance - p.normal.abs().dot(extent) < -0.001
                     })
@@ -489,7 +495,7 @@ impl World {
             if self.brush_contents.get(index).copied().unwrap_or(1) & mask == 0 {
                 continue;
             }
-            if index < self.model_brushes[0].len()
+            if index < self.brush_ids.len()
                 && self.aperture_except_cached(brush, [start + center, end + center], extent, ignore, &mut exit_clearance)
             {
                 continue;
@@ -543,7 +549,7 @@ impl World {
         let _profile = crate::frame_profile::scope(19);
         let mut hit = (1., Vec3::ZERO);
         let [Some(a), Some(b)] = self.portals else { return hit; };
-        for brush in self.brushes.iter().take(self.model_brushes[0].len()) {
+        for brush in self.brushes.iter().take(self.brush_ids.len()) {
             for (src, dst) in [(a, b), (b, a)] {
                 let d0 = src.normal.dot(start - src.center);
                 let d1 = src.normal.dot(end - src.center);
@@ -593,9 +599,6 @@ impl World {
             let t = if (a - b).abs() > 0.0001 { (a / (a - b)).clamp(0., 1.) } else { 0. };
             a.min(b) <= reach && a.max(b) >= -reach && p.fits(start.lerp(end, t), extent)
         })
-    }
-    fn aperture(&self, brush: &[Plane], start: Vec3, end: Vec3, extent: Vec3) -> bool {
-        self.aperture_except(brush, start, end, extent, None)
     }
     pub(crate) fn aperture_except(
         &self,
@@ -653,7 +656,7 @@ impl World {
                         {
                             return false;
                         }
-                        let support = index < self.model_brushes[0].len()
+                        let support = index < self.brush_ids.len()
                             && Self::portal_brush(other, dst, extent);
                         !support
                             && other.iter().all(|s| {
