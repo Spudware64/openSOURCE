@@ -191,10 +191,19 @@ fn throw_key_is_distinct_from_portal_mouse_buttons() {
         Action::Throw
     );
 }
-#[test]
-fn blocked_maker_does_not_embed_or_fire_spawn_output() {
-    let es=parse_entities(br#"{"classname" "prop_physics" "targetname" "box" "origin" "0 0 100"}{"classname" "point_template" "targetname" "template" "Template01" "box"}{"classname" "env_entity_maker" "targetname" "maker" "EntityTemplate" "template" "origin" "0 0 -100" "OnEntitySpawned" "box,Kill,,0,-1"}"#).unwrap();
+fn maker_in_floor(flags: u32) -> Runtime {
+    let fixture = r#"
+{"classname" "prop_physics" "targetname" "box" "origin" "0 0 100"}
+{"classname" "point_template" "targetname" "template" "Template01" "box"}
+{"classname" "env_entity_maker" "targetname" "maker" "EntityTemplate" "template"
+ "origin" "0 0 -100" "spawnflags" "$FLAGS"
+ "OnEntitySpawned" "result,SetActivatedState,1,0,-1"
+ "OnEntityFailedSpawn" "result,SetActivatedState,0,0,-1"}
+{"classname" "prop_portal" "targetname" "result"}
+"#.replace("$FLAGS", &flags.to_string());
+    let es = parse_entities(fixture.as_bytes()).unwrap();
     let mut r = Runtime::from_entities(es, vec![(Vec3::ZERO, Vec3::ZERO)]).unwrap();
+    r.portal_events = Some(vec![]);
     let mut w = World::from_brushes(vec![vec![opensource::play::Plane {
         normal: Vec3::Z,
         distance: 0.,
@@ -202,7 +211,19 @@ fn blocked_maker_does_not_embed_or_fire_spawn_output() {
     let mut p = Player::new(Vec3::new(200., 0., 100.), 0.);
     r.input("maker", "ForceSpawn", "");
     r.tick(1. / 120., &mut p, &mut w);
+    r
+}
+#[test]
+fn blocked_maker_does_not_embed_or_fire_spawn_output() {
+    let r = maker_in_floor(8);
     assert_eq!(r.visible.iter().filter(|v| **v).count(), 2);
+    assert_eq!(r.portal_events.unwrap(), vec![("result".into(), false)]);
+}
+#[test]
+fn forced_maker_without_space_check_spawns_and_fires_success_in_solid() {
+    let r = maker_in_floor(0);
+    assert_eq!(r.visible.iter().filter(|v| **v).count(), 3);
+    assert_eq!(r.portal_events.unwrap(), vec![("result".into(), true)]);
 }
 #[test]
 fn physics_trigger_delivers_specific_activator() {
