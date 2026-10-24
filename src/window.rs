@@ -200,7 +200,7 @@ pub(crate) async fn interactive_async(
     // works on LAN HTTP without weakening browser secure-context policy.
     #[cfg(target_arch = "wasm32")]
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::GL, ..Default::default() });
-    let surface = instance
+    let mut surface = instance
         .create_surface(window.clone())
         .map_err(|e| e.to_string())?;
     let (device, queue, mut config) = async {
@@ -211,6 +211,23 @@ pub(crate) async fn interactive_async(
             })
             .await
             .ok_or("no adapter")?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let adapter = if adapter.get_info().device_type == wgpu::DeviceType::Cpu {
+            // A Vulkan surface cannot use a GL adapter; recreate both together.
+            let gl = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::GL, ..Default::default()
+            });
+            if let Ok(gl_surface) = gl.create_surface(window.clone()) {
+                let hardware = gl.request_adapter(&wgpu::RequestAdapterOptions {
+                    compatible_surface: Some(&gl_surface), ..Default::default()
+                }).await.filter(|a| matches!(a.get_info().device_type,
+                    wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu));
+                if let Some(hardware) = hardware {
+                    surface = gl_surface;
+                    hardware
+                } else { adapter }
+            } else { adapter }
+        } else { adapter };
         println!("interactive adapter: {:?}", adapter.get_info());
         let (device, queue) = adapter
             .request_device(
@@ -237,13 +254,13 @@ pub(crate) async fn interactive_async(
         let size = window.inner_size();
         #[cfg(target_arch = "wasm32")]
         let size = winit::dpi::PhysicalSize::new(1100, 800);
-        let config = surface
+        let mut config = surface
             .get_default_config(&adapter, size.width, size.height)
             .ok_or("no surface config")?;
+        #[cfg(not(target_arch = "wasm32"))]
+        { config.usage |= surface.get_capabilities(&adapter).usages & wgpu::TextureUsages::COPY_SRC; }
         Ok::<_, String>((device, queue, config))
     }.await?;
-    #[cfg(not(target_arch = "wasm32"))]
-    { config.usage |= wgpu::TextureUsages::COPY_SRC; }
     surface.configure(&device, &config);
     let mut textured = scene
         .as_ref()
@@ -1271,6 +1288,10 @@ fn capture_surface(
     format: wgpu::TextureFormat,
     path: &str,
 ) -> Result<(), String> {
+    if !texture.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+        return Err("selected graphics backend does not support surface capture".into());
+    }
+
     let pitch = (w * 4).div_ceil(256) * 256;
     let read = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("surface capture"),
@@ -1336,4 +1357,24 @@ fn capture_surface(
         .write_image_data(&rgba)
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod capture_tests {
+    #[test]
+    fn unsupported_surface_readback_returns_error_before_gpu_copy() {
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let (device, queue) = pollster::block_on(adapter.request_device(&Default::default(), None)).unwrap();
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT, view_formats: &[],
+        });
+        let error = super::capture_surface(&device, &queue, &texture, 1, 1,
+            wgpu::TextureFormat::Rgba8Unorm, "/tmp/unsupported-surface-capture.png").unwrap_err();
+        assert!(error.contains("does not support surface capture"));
+    }
 }

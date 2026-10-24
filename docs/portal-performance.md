@@ -466,3 +466,50 @@ The full Windows script, Windows PowerShell 5.1 and Intel/Vulkan execution remai
 - **Intermittent chamber06 traversal: local controller amplification fixed** in
   the staged actual-map crossing; the user's exact portal/held-object sequence
   and full native crossing presentation still require the Windows capture.
+
+## Linux windowed software-adapter fallback (2026-10-24)
+
+On the Intel Tiger Lake Iris Xe host, Vulkan exposes only Mesa llvmpipe;
+OpenGL exposes the hardware Intel adapter. The existing headless render probe
+already selects hardware GL, but the native window's default surface selects
+software Vulkan. A headless adapter result therefore does not establish which
+adapter interactive gameplay uses.
+
+Native window startup now retries GL with a new surface when the initial adapter
+is a CPU device. It accepts the replacement only if the compatible adapter is an
+integrated or discrete GPU; otherwise it keeps the original adapter. Existing
+hardware selections and the browser backend stay unchanged. Surface COPY_SRC
+usage is requested only when supported. GL surface readback is unsupported on
+this host: capture returns an explicit error instead of issuing an invalid GPU
+copy. Capture smoke modes that unwrap capture errors still stop explicitly.
+
+Verification uses the real external Flatpak Portal assets and `escape_02` in the
+native development build, with the same default window size and spawn camera.
+`SOURCE_FRAME_PROFILE` plus `SOURCE_FRAME_DETAIL=1` records actual gameplay,
+including simulation, upload, presentation and event-loop frame gaps. Captures
+use `timeout` to bound the process; exit 124 is expected. Warm measurements drop
+the first ten frames. No resolution or geometry reduction is applied. This is a
+stationary spawn-camera check, not a complete playthrough or reproduction of the
+older Windows visible-portal acceptance case.
+
+The new readback regression test checks that an attachment lacking COPY_SRC
+returns an error before a GPU copy. Original assets and generated captures stay
+outside Git. Historical baseline failures recorded above remain historical;
+serial GPU execution avoids the previously reproduced parallel EGL failure.
+
+With compilation and tests stopped, the final warm native capture selected
+`Mesa Intel(R) Iris(R) Xe Graphics (TGL GT2)` on GL and sustained a median
+16.659 ms frame gap (60 FPS). The original software-Vulkan capture measured
+264.798 ms (3.8 FPS). Median frame work fell from 264.613 ms to 16.605 ms;
+final simulation cost was 3.299 ms. An assert-based capture check required over
+100 warm frames, a hardware adapter, median gap below 20 ms, and at least a
+fivefold improvement. All assertions passed. A capture during compilation was
+slower and is not used for this comparison.
+
+Relevant GPU render tests passed (5/5), and the new unsupported-readback test
+passed. The complete serial suite reported 240 passed, 1 failed, 1 ignored:
+`actual_pedestal_child_mesh_follows_rotating_parent` still assumes rotating
+vertices move on the CPU, conflicting with the separate uncommitted GPU model
+rotation work. This performance commit does not include that rotation change
+or alter the pedestal assertion. The initial baseline is not represented as
+uniformly green, and this run is not claimed to be fully green either.
